@@ -501,6 +501,13 @@ class ReadTransactionOut(BaseModel):
     created_by_display_name: str | None = None
     created_by_avatar_url: str | None = None
     created_by_avatar_version: int | None = None
+    # §7 共享账本:tx 创建/编辑分离显示 — last_edited 跟 created 不同时,UI
+    # 显示 "X 创建 · Y 编辑";相同时只显示创建者。
+    last_edited_by_user_id: str | None = None
+    last_edited_by_email: str | None = None
+    last_edited_by_display_name: str | None = None
+    last_edited_by_avatar_url: str | None = None
+    last_edited_by_avatar_version: int | None = None
 
 
 class ReadAccountOut(BaseModel):
