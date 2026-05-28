@@ -678,15 +678,16 @@ export function AccountsPanel({
     let liabilityTotal = 0
     for (const row of rows) {
       // 优先用 server 聚合后的 balance（含所有交易）；老接口 / 无 tx 则回退到
-      // initialBalance。负债类 balance 通常是负数，用绝对值统计总欠款。
+      // initialBalance。负债类 balance 通常是负数,abs 后作为正欠款累计;资产
+      // 类保留符号,透支账户(balance<0)会扣减总资产,跟 mobile
+      // local_account_repository.getNetWorthBreakdown 的累加口径一致。
       const stats = row as ReadAccount & AccountStats
       const raw =
         typeof stats.balance === 'number' && stats.balance !== null
           ? stats.balance
           : row.initial_balance ?? 0
-      const bal = Math.abs(raw)
-      if (LIABILITY_TYPES.has(row.account_type || '')) liabilityTotal += bal
-      else assetTotal += bal
+      if (LIABILITY_TYPES.has(row.account_type || '')) liabilityTotal += Math.abs(raw)
+      else assetTotal += raw
     }
     return { assetTotal, liabilityTotal, netWorth: assetTotal - liabilityTotal }
   }, [rows])
@@ -717,7 +718,8 @@ export function AccountsPanel({
             typeof stats.balance === 'number' && stats.balance !== null
               ? stats.balance
               : r.initial_balance ?? 0
-          return s + Math.abs(raw)
+          // 负债组按 |balance| 显示总欠款,资产组保留符号,跟 summary 累加口径一致。
+          return s + (LIABILITY_TYPES.has(type) ? Math.abs(raw) : raw)
         }, 0)
       }))
   }, [rows, t])
