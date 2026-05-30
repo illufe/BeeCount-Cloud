@@ -173,7 +173,7 @@ export function TransactionRow({
         className="min-w-0 flex-1 grid gap-x-3"
         style={{ gridTemplateColumns: '1fr auto', gridTemplateRows: 'auto 1fr' }}
       >
-        {/* 左上:分类 + 备注 — self-start 钉到 row 顶部 */}
+        {/* 左上:分类 + 备注 + 账本名(showLedger,主题色) — self-start 钉到 row 顶部 */}
         <div className="flex min-w-0 items-center gap-2 self-start">
           {categoryEntry ? (
             <CategoryIcon
@@ -189,6 +189,14 @@ export function TransactionRow({
           {row.note ? (
             <span className="truncate text-xs text-muted-foreground">
               ({row.note})
+            </span>
+          ) : null}
+          {showLedger && row.ledger_name ? (
+            <span
+              className="inline-flex shrink-0 items-center rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium leading-none text-primary"
+              title={row.ledger_name}
+            >
+              {row.ledger_name}
             </span>
           ) : null}
         </div>
@@ -247,14 +255,6 @@ export function TransactionRow({
           <span className="font-mono tabular-nums">{formatDateTime(row.happened_at)}</span>
           {accountText && accountText !== '-' ? (
             <span className="truncate">· {accountText}</span>
-          ) : null}
-          {showLedger && row.ledger_name ? (
-            <span
-              className="inline-flex shrink-0 items-center rounded border border-border/60 bg-muted/30 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-              title={row.ledger_name}
-            >
-              {row.ledger_name}
-            </span>
           ) : null}
           {row.tags_list && row.tags_list.length > 0
             ? row.tags_list.map((tagName) => (
