@@ -1,8 +1,11 @@
-import type { ReadAccount } from '@beecount/api-client'
+import type { ExchangeRateOverride, ExchangeRatesResponse, ReadAccount } from '@beecount/api-client'
 import {
   accountBalance,
+  type AssetGroup,
   computeCurrencySummary,
+  effectiveRateToBase,
   LIABILITY_TYPES,
+  mergeGroupsToBase,
   splitByCurrency
 } from '@beecount/web-features'
 import { describe, expect, it } from 'vitest'
@@ -72,5 +75,126 @@ describe('asset aggregation — 绝不跨币种相加', () => {
     }, 0)
     expect(naiveWrong).toBe(2_473_400)
     expect(cny.netWorth).not.toBe(naiveWrong)
+  })
+})
+
+/**
+ * effectiveRateToBase 契约 —— pin 住各边界分支的有意行为。
+ *
+ * 特别注意:override 存在但非法(非 finite / <=0)→ 返回 null,**不回落 auto**。
+ * 这是有意行为:用户手动填了一个坏值,宁可让折算缺失也不静默用自动值混淆来源。
+ */
+describe('effectiveRateToBase', () => {
+  // 构造辅助
+  function auto(rates: Record<string, string>, rateDate = '2025-01-01'): ExchangeRatesResponse {
+    return { rates, rate_date: rateDate } as ExchangeRatesResponse
+  }
+  function ov(base_currency: string, quote_currency: string, rate: string): ExchangeRateOverride {
+    return { base_currency, quote_currency, rate } as ExchangeRateOverride
+  }
+
+  it('① quote === base → rate 1, source auto', () => {
+    const result = effectiveRateToBase('CNY', 'CNY', null, [])
+    expect(result).not.toBeNull()
+    expect(result!.rate).toBe(1)
+    expect(result!.source).toBe('auto')
+  })
+
+  it('② override 优先于 auto —— override rate 用于计算,source=manual', () => {
+    const autoRates = auto({ USD: '7.2' })    // 1 CNY = 7.2 USD → auto: 1 USD = 1/7.2 CNY
+    const overrides = [ov('CNY', 'USD', '7.5')] // 1 USD = 7.5 CNY (手动)
+    const result = effectiveRateToBase('USD', 'CNY', autoRates, overrides)
+    expect(result).not.toBeNull()
+    expect(result!.rate).toBe(7.5)
+    expect(result!.source).toBe('manual')
+  })
+
+  it('③ auto 取倒数 —— rates["USD"]="0.25" → 1 USD = 4 base', () => {
+    // auto rates 存储的是 1 base = x quote,故 1 quote = 1/x base
+    const autoRates = auto({ USD: '0.25' })  // 1 CNY = 0.25 USD → 1 USD = 4 CNY
+    const result = effectiveRateToBase('USD', 'CNY', autoRates, [])
+    expect(result).not.toBeNull()
+    expect(result!.rate).toBeCloseTo(4)
+    expect(result!.source).toBe('auto')
+  })
+
+  it('④ override 存在但非法(非 finite/<=0) → null,不回落 auto(有意行为,pin 住)', () => {
+    const autoRates = auto({ USD: '7.2' })   // auto 有值
+    const overrides = [ov('CNY', 'USD', 'bad')] // override rate 非法
+    expect(effectiveRateToBase('USD', 'CNY', autoRates, overrides)).toBeNull()
+
+    const overridesZero = [ov('CNY', 'USD', '0')]
+    expect(effectiveRateToBase('USD', 'CNY', autoRates, overridesZero)).toBeNull()
+
+    const overridesNeg = [ov('CNY', 'USD', '-1')]
+    expect(effectiveRateToBase('USD', 'CNY', autoRates, overridesNeg)).toBeNull()
+  })
+
+  it('⑤ auto 缺失/非法 → null', () => {
+    // auto 为 null
+    expect(effectiveRateToBase('USD', 'CNY', null, [])).toBeNull()
+
+    // auto 存在但该 quote 不在 rates 里
+    expect(effectiveRateToBase('EUR', 'CNY', auto({ USD: '7.2' }), [])).toBeNull()
+
+    // auto rates 值非法
+    expect(effectiveRateToBase('USD', 'CNY', auto({ USD: 'NaN' }), [])).toBeNull()
+    expect(effectiveRateToBase('USD', 'CNY', auto({ USD: '0' }), [])).toBeNull()
+  })
+})
+
+/**
+ * mergeGroupsToBase 契约 —— 折算汇总视图的「合并构成 donut」聚合。
+ * 锁两点:① 各币种同类型折算后跨币种累加进主币种;② 缺失汇率的整币种**剔除**,
+ * 绝不按 1 折入(与净资产/资产/负债折算同口径)。
+ */
+describe('mergeGroupsToBase — 折算合并构成', () => {
+  function group(p: Partial<AssetGroup> & { value: number; currency?: string }): AssetGroup {
+    return {
+      type: p.type ?? 'cash',
+      label: p.label ?? p.type ?? 'cash',
+      color: p.color ?? '#000',
+      isLiability: p.isLiability ?? false,
+      rows: p.rows ?? [],
+      subtotals: [{ currency: p.currency ?? 'CNY', value: p.value }]
+    }
+  }
+  function auto(rates: Record<string, string>): ExchangeRatesResponse {
+    return { rates, rate_date: '2025-01-01' } as ExchangeRatesResponse
+  }
+
+  it('各币种同类型按汇率折算后跨币种合并到主币种', () => {
+    // base=CNY。USD 走 auto:1 CNY = 0.25 USD → 1 USD = 4 CNY。
+    const buckets = [
+      { currency: 'CNY', groups: [group({ type: 'cash', value: 1000, currency: 'CNY' })] },
+      {
+        currency: 'USD',
+        groups: [
+          group({ type: 'cash', value: 100, currency: 'USD' }), // ×4 = 400 CNY
+          group({ type: 'bank_card', value: 50, currency: 'USD' }) // ×4 = 200 CNY
+        ]
+      }
+    ]
+    const merged = mergeGroupsToBase(buckets, 'CNY', auto({ USD: '0.25' }), [])
+    const cash = merged.find((g) => g.type === 'cash')!
+    const bank = merged.find((g) => g.type === 'bank_card')!
+    // cash: 1000(CNY) + 100×4(USD) = 1400;输出单条 subtotal、币种为 base。
+    expect(cash.subtotals).toHaveLength(1)
+    expect(cash.subtotals[0].currency).toBe('CNY')
+    expect(cash.subtotals[0].value).toBeCloseTo(1400)
+    expect(bank.subtotals[0].value).toBeCloseTo(200)
+  })
+
+  it('缺失汇率的整币种被剔除,绝不按 1 折入', () => {
+    // EUR 既无 override 也不在 auto.rates → 整币种丢弃。
+    const buckets = [
+      { currency: 'CNY', groups: [group({ type: 'cash', value: 1000, currency: 'CNY' })] },
+      { currency: 'EUR', groups: [group({ type: 'cash', value: 999, currency: 'EUR' })] }
+    ]
+    const merged = mergeGroupsToBase(buckets, 'CNY', auto({ USD: '0.25' }), [])
+    const cash = merged.find((g) => g.type === 'cash')!
+    // 只剩 CNY 的 1000;EUR 的 999 既没按 1 加、也没生成新组。
+    expect(cash.subtotals[0].value).toBe(1000)
+    expect(cash.subtotals[0].value).not.toBe(1999)
   })
 })
