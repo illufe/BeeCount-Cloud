@@ -4,6 +4,8 @@
 都是以账本为主键的 projection 查询,不做跨账本聚合。"""
 from __future__ import annotations
 
+from sqlalchemy import false as sa_false
+
 from ._shared import *  # noqa: F401,F403 — imports + helpers + router
 
 
@@ -325,6 +327,8 @@ def list_transactions(
                 tags_list=_tags_list(row.tags_csv),
                 tag_ids=tag_ids,
                 attachments=attachments,
+                exclude_from_stats=bool(row.exclude_from_stats),
+                exclude_from_budget=bool(row.exclude_from_budget),
                 last_change_id=source_change_id,
                 ledger_id=ledger.external_id,
                 ledger_name=ledger_name,
@@ -580,6 +584,9 @@ def list_budgets_usage(
             ReadTxProjection.tx_type == "expense",
             ReadTxProjection.happened_at >= start,
             ReadTxProjection.happened_at < end,
+            # D2: 预算用量仅看 exclude_from_budget,与 exclude_from_stats 独立。
+            # 标记排除预算的交易不计入用量(total + category 共用此 base_q)。
+            ReadTxProjection.exclude_from_budget == sa_false(),
         )
         if (b.budget_type or "total") == "category" and b.category_sync_id:
             # parent + 所有 parent_sync_id 指向它的子分类
