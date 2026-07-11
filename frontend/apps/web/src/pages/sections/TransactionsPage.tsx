@@ -1669,11 +1669,14 @@ export function TransactionsPage() {
     [transactions, selectedTxIds],
   )
   // 已选合计金额:支出 - 收入(转账中性,不计入展示)。
+  // 跨账户合计属账本维度 → 折本位币口径:native_amount ?? amount(多币种账本
+  // 裸加原币会错;单币种 native===amount 结果不变)。
   const selectedTotalAmount = useMemo(() => {
     let sum = 0
     for (const t of selectedTxList) {
-      if (t.tx_type === 'expense') sum -= Number(t.amount) || 0
-      else if (t.tx_type === 'income') sum += Number(t.amount) || 0
+      const amt = Number(t.native_amount ?? t.amount) || 0
+      if (t.tx_type === 'expense') sum -= amt
+      else if (t.tx_type === 'income') sum += amt
     }
     return sum
   }, [selectedTxList])

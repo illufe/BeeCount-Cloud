@@ -206,6 +206,8 @@ def list_workspace_transactions(
                 attachments=attachments,
                 exclude_from_stats=bool(row.exclude_from_stats),
                 exclude_from_budget=bool(row.exclude_from_budget),
+                currency_code=row.currency_code,
+                native_amount=row.native_amount,
                 last_change_id=change_id,
                 ledger_id=led_ext_id,
                 ledger_name=led_name,
@@ -992,7 +994,8 @@ def workspace_analytics(
     if ledger_internal_ids:
         tx_query = select(
             ReadTxProjection.tx_type,
-            ReadTxProjection.amount,
+            # 账本维度折本位币口径(0018):native_amount ?? amount。
+            func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount),
             ReadTxProjection.happened_at,
             ReadTxProjection.category_name,
         ).where(

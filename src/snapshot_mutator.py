@@ -341,7 +341,28 @@ def update_transaction(snapshot: dict, tx_id: str, payload: dict) -> dict:
             raise ValueError("write validation failed: invalid transaction type")
         item["type"] = tx_type
     if "amount" in payload:
-        item["amount"] = _to_float(payload.get("amount"))
+        new_amount = _to_float(payload.get("amount"))
+        # 交易级多币种(L14,.docs/multi-currency-ledger):item 带折算快照
+        # (nativeAmount,新 App 记的交易都有)时,改 amount 必须联动,否则
+        # 账本统计(读 native_amount)会一直显示旧金额。规则:
+        #   同币种/未折算(old_native == old_amount)→ 跟随新 amount;
+        #   外币 → 按该笔隐含汇率等比缩放(保持记账时汇率);
+        #   old_amount == 0 无法推汇率 → 退化 = 新 amount(1:1)。
+        # item 无该 key(旧 App 记的存量交易)→ 不产生,upsert 落 NULL,
+        # 统计端 COALESCE 回退新 amount。payload 显式带 native_amount 时
+        # 以传入为准(下方统一写入),跳过联动。
+        if "nativeAmount" in item and payload.get("native_amount") is None:
+            old_amount = _to_float(item.get("amount"))
+            old_native = _to_float(item.get("nativeAmount"))
+            if new_amount != old_amount:
+                if old_amount == 0.0 or old_native == old_amount:
+                    item["nativeAmount"] = new_amount
+                else:
+                    item["nativeAmount"] = old_native / old_amount * new_amount
+        item["amount"] = new_amount
+    if payload.get("native_amount") is not None:
+        # 显式传入优先(未来 Web 折算录入的口子);None = 不变。
+        item["nativeAmount"] = _to_float(payload.get("native_amount"))
     if "happened_at" in payload:
         item["happenedAt"] = _to_iso8601(payload.get("happened_at"))
 

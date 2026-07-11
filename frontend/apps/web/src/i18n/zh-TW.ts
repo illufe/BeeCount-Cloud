@@ -1083,6 +1083,7 @@ const zhTW = {
   'transactions.table.time': '時間',
   'transactions.table.type': '類型',
   'transactions.table.amount': '金額',
+  'transactions.convertedToBase': '已按記帳時匯率折算為帳本本位幣',
   'transactions.table.category': '分類',
   'transactions.table.account': '帳戶',
   'transactions.table.attachments': '附件',

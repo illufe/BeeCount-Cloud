@@ -88,6 +88,12 @@ export function TransactionRow({
 
   const amountTone = row.tx_type === 'expense' ? 'negative' : row.tx_type === 'income' ? 'positive' : 'default'
   const sign = row.tx_type === 'expense' ? '-' : row.tx_type === 'income' ? '+' : ''
+  // 交易级多币种:折算快照存在且 ≠ 原币值 → 外币交易,金额旁标币种 + ≈ 折算行。
+  // 同币种交易 native === amount 恒成立,自然不显示;无需引入账本本位币 prop。
+  const isForeignCurrency =
+    !!row.currency_code &&
+    row.native_amount != null &&
+    row.native_amount !== row.amount
   const categoryText = row.category_name || (row.tx_type === 'transfer' ? t('enum.txType.transfer') : '-')
   const rowTitle = composeTransactionRowTitle({
     mode: noteDisplayMode,
@@ -243,18 +249,38 @@ export function TransactionRow({
               ) : null}
             </div>
           ) : null}
-          <span className={`font-mono tabular-nums font-bold ${
-            amountTone === 'positive'
-              ? 'text-income'
-              : amountTone === 'negative'
-                ? 'text-expense'
-                : 'text-foreground'
-          } ${isCompact ? 'text-sm' : 'text-base'}`}>
-            {sign}
-            {row.amount.toLocaleString('zh-CN', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            })}
+          <span className="flex flex-col items-end">
+            <span className={`font-mono tabular-nums font-bold ${
+              amountTone === 'positive'
+                ? 'text-income'
+                : amountTone === 'negative'
+                  ? 'text-expense'
+                  : 'text-foreground'
+            } ${isCompact ? 'text-sm' : 'text-base'}`}>
+              {sign}
+              {row.amount.toLocaleString('zh-CN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+              {isForeignCurrency ? (
+                <span className="ml-1 align-middle text-[10px] font-medium text-muted-foreground">
+                  {row.currency_code}
+                </span>
+              ) : null}
+            </span>
+            {/* 交易级多币种:外币交易(折算快照 ≠ 原币值)加一行 ≈ 账本本位币。
+                账本统计口径与此折算一致(记账时汇率,不随汇率变)。 */}
+            {isForeignCurrency ? (
+              <span
+                className="font-mono tabular-nums text-[11px] text-muted-foreground"
+                title={t('transactions.convertedToBase')}
+              >
+                ≈ {(row.native_amount as number).toLocaleString('zh-CN', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
+              </span>
+            ) : null}
           </span>
         </div>
 

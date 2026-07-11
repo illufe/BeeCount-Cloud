@@ -521,6 +521,10 @@ class ReadTransactionOut(BaseModel):
     # exclude_from_budget=不计入预算用量。两者独立,旧数据 default False。
     exclude_from_stats: bool = False
     exclude_from_budget: bool = False
+    # 交易级多币种(0018):currency_code=原币种(null 视作账本本位币);
+    # native_amount=折账本本位币快照(null 时前端 fallback 用 amount)。
+    currency_code: str | None = None
+    native_amount: float | None = None
     last_change_id: int
     ledger_id: str | None = None
     ledger_name: str | None = None

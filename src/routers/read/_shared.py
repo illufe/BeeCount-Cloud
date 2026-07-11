@@ -430,18 +430,23 @@ def _projection_totals(
     db: Session, ledger_internal_id: str
 ) -> tuple[int, float, float, datetime | None]:
     """从 read_tx_projection 聚合出 (count, income_total, expense_total, latest)。
-    SQLite / PostgreSQL 通用:用 SQLAlchemy 的 `case` 做条件 sum。"""
+    SQLite / PostgreSQL 通用:用 SQLAlchemy 的 `case` 做条件 sum。
+
+    账本维度口径(交易级多币种,0018):折账本本位币,读 native_amount,
+    NULL(旧 App 推的 / 存量)回退 amount。单币种账本 native==amount,结果不变。
+    账户维度(workspace/accounts 按 account_sync_id 聚合)仍读 amount 原币,不要仿此改。"""
     from sqlalchemy import case as sa_case
 
+    _native = func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount)
     row = db.execute(
         select(
             func.count(ReadTxProjection.sync_id),
             func.coalesce(func.sum(
-                sa_case((ReadTxProjection.tx_type == "income", ReadTxProjection.amount),
+                sa_case((ReadTxProjection.tx_type == "income", _native),
                         else_=0.0)
             ), 0.0),
             func.coalesce(func.sum(
-                sa_case((ReadTxProjection.tx_type == "expense", ReadTxProjection.amount),
+                sa_case((ReadTxProjection.tx_type == "expense", _native),
                         else_=0.0)
             ), 0.0),
             func.max(ReadTxProjection.happened_at),

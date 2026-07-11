@@ -1082,6 +1082,7 @@ const en = {
   'transactions.table.time': 'time',
   'transactions.table.type': 'type',
   'transactions.table.amount': 'amount',
+  'transactions.convertedToBase': 'Converted to ledger base currency at the rate recorded at entry time',
   'transactions.table.category': 'category',
   'transactions.table.account': 'account',
   'transactions.table.attachments': 'attachments',

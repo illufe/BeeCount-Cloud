@@ -1124,6 +1124,7 @@ const zhCN = {
   'transactions.table.time': '时间',
   'transactions.table.type': '类型',
   'transactions.table.amount': '金额',
+  'transactions.convertedToBase': '已按记账时汇率折算为账本本位币',
   'transactions.table.category': '分类',
   'transactions.table.account': '账户',
   'transactions.table.attachments': '附件',

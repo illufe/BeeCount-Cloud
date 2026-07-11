@@ -329,6 +329,8 @@ def list_transactions(
                 attachments=attachments,
                 exclude_from_stats=bool(row.exclude_from_stats),
                 exclude_from_budget=bool(row.exclude_from_budget),
+                currency_code=row.currency_code,
+                native_amount=row.native_amount,
                 last_change_id=source_change_id,
                 ledger_id=ledger.external_id,
                 ledger_name=ledger_name,
@@ -579,7 +581,11 @@ def list_budgets_usage(
 
     items: list[ReadBudgetUsageItemOut] = []
     for b in dedup.values():
-        base_q = select(func.coalesce(func.sum(ReadTxProjection.amount), 0.0)).where(
+        # 预算金额本身是账本本位币,用量必须同计量单位:
+        # 折本位币口径(0018)读 native_amount,NULL 回退 amount。
+        base_q = select(func.coalesce(func.sum(
+            func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount)
+        ), 0.0)).where(
             ReadTxProjection.ledger_id == ledger.id,
             ReadTxProjection.tx_type == "expense",
             ReadTxProjection.happened_at >= start,
