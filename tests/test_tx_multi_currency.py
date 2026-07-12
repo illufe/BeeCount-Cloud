@@ -636,6 +636,59 @@ def test_ledger_totals_exclude_flagged_transactions():
         app.dependency_overrides.clear()
 
 
+def test_web_ledger_currency_change_recalcs_projection(monkeypatch):
+    """Web 改主币种(反馈20):mutate 重算 snapshot.items 折算 → diff 基建自动
+    生成每笔 tx change + 更新投影。旧本位币(NULL/CNY)交易按新本位币折算,
+    NULL currencyCode 显式落旧币种;缺汇率退化 =amount。"""
+    from src.services.exchange_rate import fetcher as rate_fetcher
+
+    class _FakeRow:
+        payload_json = {"cny": 20.0, "usd": 0.14}  # 1 JPY = 20 CNY? 方向:1 base(JPY)=x quote
+
+    async def fake_get_rates(db, base):
+        assert base == "JPY"
+        return _FakeRow(), False
+
+    monkeypatch.setattr(rate_fetcher, "get_rates", fake_get_rates)
+
+    client, TS = _make_client()
+    try:
+        app_token, web_token = _two_tokens(client, "mc-webccy@t.com")
+        hdr_app = {"Authorization": f"Bearer {app_token}"}
+        hdr_web = {"Authorization": f"Bearer {web_token}",
+                   "X-Device-ID": "d-web"}
+        _push(client, hdr_app, "lg1", "ledger", "lg1",
+              {"syncId": "lg1", "ledgerName": "L", "currency": "CNY"})
+        # 一笔 CNY 交易(currencyCode 显式)
+        _push(client, hdr_app, "lg1", "transaction", "t-cny",
+              {"syncId": "t-cny", "type": "expense", "amount": 100.0,
+               "currencyCode": "CNY", "nativeAmount": 100.0,
+               "happenedAt": _iso()})
+
+        r = client.patch(
+            "/api/v1/write/ledgers/lg1/meta",
+            headers=hdr_web,
+            json={"base_change_id": 0, "currency": "JPY"},
+        )
+        assert r.status_code == 200, r.text
+
+        lid = _ledger_internal_id(TS, "lg1")
+        tx = _get_tx(TS, lid, "t-cny")
+        # 1 JPY = 20 CNY → 100 CNY 折 JPY = 100/20*... 等等:rates[cny]=20
+        # 表示 1 JPY = 20 CNY?fetcher payload 是 base→quote:1 JPY = 20 CNY
+        # 不现实但作为测试值:100 CNY / 20 = 5 JPY
+        assert tx.currency_code == "CNY"
+        assert abs(tx.native_amount - 5.0) < 1e-9, tx.native_amount
+        # 生成了该笔的 change(App pull 后本地同步重算)
+        from src.models import SyncChange
+        with TS() as db:
+            n = db.query(SyncChange).filter_by(
+                entity_type="transaction", entity_sync_id="t-cny").count()
+            assert n >= 2, "改主币种应为受影响交易生成新 change"
+    finally:
+        app.dependency_overrides.clear()
+
+
 # --------------------------------------------------------------------------- #
 # CSV 导出/导入:币种列(反馈10)                                                 #
 # --------------------------------------------------------------------------- #
