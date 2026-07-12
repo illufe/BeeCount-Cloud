@@ -45,7 +45,7 @@ def list_ledgers(
         # 后 ~1ms,偶发 cold miss 50ms 可接受;list_ledgers 本身调用频率低。
         currency = ledger.currency or "CNY"
         ledger_name = _resolve_ledger_name(db, ledger=ledger)
-        tx_count, income_total, expense_total, _ = _projection_totals(db, ledger.id)
+        tx_count, income_total, expense_total, balance_all, _ = _projection_totals(db, ledger.id)
         now = datetime.now(timezone.utc)
         member_count = count_ledger_members(db, ledger_id=ledger.id)
         effective_role = role or ("owner" if ledger.user_id == current_user.id else "viewer")
@@ -58,7 +58,7 @@ def list_ledgers(
                 transaction_count=tx_count,
                 income_total=income_total,
                 expense_total=expense_total,
-                balance=income_total - expense_total,
+                balance=balance_all,
                 exported_at=now,
                 updated_at=now,
                 role=cast("Any", effective_role),
@@ -212,7 +212,7 @@ def get_ledger(
     )
     currency = ledger.currency or "CNY"
     ledger_name = _resolve_ledger_name(db, ledger=ledger)
-    tx_count, income_total, expense_total, _ = _projection_totals(db, ledger.id)
+    tx_count, income_total, expense_total, balance_all, _ = _projection_totals(db, ledger.id)
     source_change_id = _get_latest_change_id(db, ledger_id=ledger.id)
     now = datetime.now(timezone.utc)
     # 共享账本 Phase 1:member_count 从 ledger_members 表实时数。is_shared = count > 1。
@@ -226,7 +226,7 @@ def get_ledger(
         transaction_count=tx_count,
         income_total=income_total,
         expense_total=expense_total,
-        balance=income_total - expense_total,
+        balance=balance_all,
         exported_at=now,
         updated_at=now,
         source_change_id=source_change_id,

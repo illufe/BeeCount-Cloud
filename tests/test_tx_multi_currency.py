@@ -630,6 +630,8 @@ def test_ledger_totals_exclude_flagged_transactions():
         assert row["expense_total"] == 100.0
         assert row["income_total"] == 0.0, "标记笔不得计入收入"
         assert row["transaction_count"] == 2, "笔数不过滤(D1)"
+        # D5:余额=钱的位置,标记笔仍计入(+1 收入 -100 支出 = -99)
+        assert row["balance"] == -99.0, "余额必须含标记笔(D5,对齐 App)"
     finally:
         app.dependency_overrides.clear()
 

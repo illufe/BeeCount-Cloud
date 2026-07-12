@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
+  fetchExchangeRates,
   createCategory,
   createTransaction,
   fetchWorkspaceAccounts,
@@ -211,6 +212,39 @@ export function GlobalEditDialogs() {
       }
     }
 
+    // v30 多币种:所选币种 ≠ 账本主币种 → 按 server 汇率折本位币快照;
+    // 拉不到汇率阻断保存(与 TransactionsPage 提交逻辑一致,绝不静默 1:1)。
+    const ledgerBase = (
+      ledgers.find((l) => l.ledger_id === ledgerId)?.currency || 'CNY'
+    )
+      .trim()
+      .toUpperCase()
+    const accountCurrencyOfForm = editTxAccounts
+      .find((a) => (a.name || '').trim() === editTxForm.account_name.trim())
+      ?.currency?.toUpperCase()
+    const effCurrency = (
+      editTxForm.currency ||
+      (editTxForm.tx_type !== 'transfer' ? accountCurrencyOfForm : '') ||
+      ledgerBase
+    ).toUpperCase()
+    let currencyFields: { currency_code?: string; native_amount?: number } = {}
+    if (editTxForm.tx_type !== 'transfer' && effCurrency !== ledgerBase) {
+      try {
+        const ratesRes = await fetchExchangeRates(token, ledgerBase)
+        const raw =
+          ratesRes.rates[effCurrency] ?? ratesRes.rates[effCurrency.toLowerCase()]
+        const rate = Number(raw)
+        if (!Number.isFinite(rate) || rate <= 0) throw new Error('rate missing')
+        currencyFields = {
+          currency_code: effCurrency,
+          native_amount: amountNum / rate
+        }
+      } catch {
+        notifyError(new Error(t('transactions.error.rateMissing')))
+        return false
+      }
+    }
+
     const payload = {
       tx_type: editTxForm.tx_type,
       amount: amountNum,
@@ -241,6 +275,7 @@ export function GlobalEditDialogs() {
         editTxForm.tx_type === 'transfer' ? false : editTxForm.exclude_from_stats,
       exclude_from_budget:
         editTxForm.tx_type === 'expense' ? editTxForm.exclude_from_budget : false,
+      ...currencyFields
     }
 
     try {
@@ -357,6 +392,11 @@ export function GlobalEditDialogs() {
     <>
       <TransactionsPanel
       dialogOnlyMode
+      baseCurrency={(
+        ledgers.find((l) => l.ledger_id === editTxLedgerId)?.currency || 'CNY'
+      )
+        .trim()
+        .toUpperCase()}
       form={editTxForm}
       rows={[]}
       total={0}
