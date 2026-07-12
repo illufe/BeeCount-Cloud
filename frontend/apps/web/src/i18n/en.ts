@@ -140,6 +140,7 @@ const en = {
   'import.mapping.field.from_account_name': 'From account',
   'import.mapping.field.to_account_name': 'To account',
   'import.mapping.field.note': 'Note',
+  'import.mapping.field.currency': 'Currency',
   'import.mapping.reset': 'Reset',
   'import.mapping.applyAndPreview': 'Apply & preview',
   'import.mappingBadge.auto': 'Mapping auto-detected',

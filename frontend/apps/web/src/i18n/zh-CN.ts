@@ -634,6 +634,7 @@ const zhCN = {
   'import.mapping.field.from_account_name': '转出账户',
   'import.mapping.field.to_account_name': '转入账户',
   'import.mapping.field.note': '备注',
+  'import.mapping.field.currency': '币种',
   'import.mapping.reset': '恢复默认',
   'import.mapping.applyAndPreview': '应用并预览',
   'import.mappingBadge.auto': '映射自动识别',

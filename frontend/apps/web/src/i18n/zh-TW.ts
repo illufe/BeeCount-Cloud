@@ -140,6 +140,7 @@ const zhTW = {
   'import.mapping.field.from_account_name': '轉出帳戶',
   'import.mapping.field.to_account_name': '轉入帳戶',
   'import.mapping.field.note': '備註',
+  'import.mapping.field.currency': '幣種',
   'import.mapping.reset': '恢復預設',
   'import.mapping.applyAndPreview': '套用並預覽',
   'import.mappingBadge.auto': '映射自動識別',

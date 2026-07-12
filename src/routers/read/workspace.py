@@ -244,16 +244,16 @@ def list_workspace_transactions(
 
 
 _CSV_HEADERS_BY_LANG: dict[str, list[str]] = {
-    # 跟 mobile lib/pages/data/export_page.dart 的 11 列严格对齐:
-    # Type, Category, SubCategory, Amount, Account, FromAccount,
+    # 跟 mobile lib/pages/data/export_page.dart 的 12 列严格对齐(v30 加币种):
+    # Type, Category, SubCategory, Amount, Currency, Account, FromAccount,
     # ToAccount, Note, Time, Tags, Attachments
-    "zh-CN": ["类型", "分类", "二级分类", "金额", "账户", "转出账户",
+    "zh-CN": ["类型", "分类", "二级分类", "金额", "币种", "账户", "转出账户",
               "转入账户", "备注", "时间", "标签", "附件"],
-    "zh-TW": ["類型", "分類", "二級分類", "金額", "帳戶", "轉出帳戶",
+    "zh-TW": ["類型", "分類", "二級分類", "金額", "幣種", "帳戶", "轉出帳戶",
               "轉入帳戶", "備註", "時間", "標籤", "附件"],
-    "en":    ["Type", "Category", "Subcategory", "Amount", "Account",
-              "From Account", "To Account", "Note", "Time", "Tags",
-              "Attachments"],
+    "en":    ["Type", "Category", "Subcategory", "Amount", "Currency",
+              "Account", "From Account", "To Account", "Note", "Time",
+              "Tags", "Attachments"],
 }
 
 _TX_TYPE_LABELS_BY_LANG: dict[str, dict[str, str]] = {
@@ -341,6 +341,8 @@ def export_workspace_transactions_csv(
     else:
         ledger_internal_ids = []
         primary_name = "ledger"
+    # v30 多币种:currency_code NULL 的历史行按其账本本位币兜底(导出自包含)
+    ledger_currency_by_id = {l.id: (l.currency or "CNY") for l in ledgers}
 
     # LEFT JOIN UserCategoryProjection 拿 level + parent_name,做 parent/sub 列拆分。
     # category 是 user-global,按 user_id 而非 ledger_id JOIN。
@@ -458,11 +460,20 @@ def export_workspace_transactions_csv(
                 f"  {local_dt.strftime('%Y-%m-%d %H:%M:%S')}  "
             )
 
+            # v30 多币种:currency_code 为 NULL 的历史行按账本本位币兜底
+            # (与统计读取端同语义,导出自包含可回导)
+            currency_col = (
+                tx.currency_code
+                or ledger_currency_by_id.get(tx.ledger_id)
+                or "CNY"
+            ).upper()
+
             yield ",".join([
                 _csv_field(type_label),
                 _csv_field(category_col),
                 _csv_field(sub_category_col),
                 f"{tx.amount:.2f}" if tx.amount is not None else "",
+                _csv_field(currency_col),
                 _csv_field(tx.account_name) if not is_transfer else "",
                 _csv_field(tx.from_account_name) if is_transfer else "",
                 _csv_field(tx.to_account_name) if is_transfer else "",

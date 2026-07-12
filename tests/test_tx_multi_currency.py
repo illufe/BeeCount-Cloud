@@ -608,6 +608,61 @@ def test_web_create_tx_with_currency_lands_in_projection():
 
 
 # --------------------------------------------------------------------------- #
+# CSV 导出/导入:币种列(反馈10)                                                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_csv_export_includes_currency_column():
+    """transactions.csv 12 列含「币种」;外币交易导出其 currencyCode,
+    历史 NULL 行按账本本位币兜底。"""
+    client, TS = _make_client()
+    try:
+        app_token, web_token = _two_tokens(client, "mc-csv@t.com")
+        hdr_app = {"Authorization": f"Bearer {app_token}"}
+        hdr_web = {"Authorization": f"Bearer {web_token}"}
+        _seed_mixed_currency_ledger(client, hdr_app)
+        _push(client, hdr_app, "lg1", "transaction", "tx-legacy",
+              {"syncId": "tx-legacy", "type": "expense", "amount": 5.0,
+               "happenedAt": _iso()})  # NULL currency → 本位币兜底
+
+        r = client.get(
+            "/api/v1/read/workspace/transactions.csv",
+            headers=hdr_web, params={"lang": "zh-CN"},
+        )
+        assert r.status_code == 200, r.text
+        lines = r.text.lstrip("\ufeff").splitlines()
+        header = lines[0].split(",")
+        assert header[4] == "币种", header
+        body = "\n".join(lines[1:])
+        assert "USD" in body
+        assert "CNY" in body  # 本位币交易 + legacy 兜底
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_import_recognizes_currency_column():
+    """导入:表头「币种」被自动识别进 mapping;transformer 落
+    ImportTransaction.currency_code(脏值回退 None)。"""
+    from src.services.import_data.parser import parse_csv_text
+    from src.services.import_data.transformer import apply_mapping
+
+    csv_text = (
+        "类型,金额,币种,时间,分类\n"
+        "支出,1000,JPY,2026-07-01 12:00:00,餐饮\n"
+        "支出,50,,2026-07-02 12:00:00,餐饮\n"
+        "支出,20,不是币种,2026-07-03 12:00:00,餐饮\n"
+    )
+    data = parse_csv_text(raw_text=csv_text)
+    assert data.suggested_mapping.currency == "币种"
+    txs, errors, _warnings = apply_mapping(
+        rows=data.rows, mapping=data.suggested_mapping)
+    assert not errors, errors
+    assert txs[0].currency_code == "JPY"
+    assert txs[1].currency_code is None   # 空值 → 本位币语义
+    assert txs[2].currency_code is None   # 脏值回退
+
+
+# --------------------------------------------------------------------------- #
 # snapshot_builder:full pull 重建的 item 必须带两字段                          #
 # --------------------------------------------------------------------------- #
 
