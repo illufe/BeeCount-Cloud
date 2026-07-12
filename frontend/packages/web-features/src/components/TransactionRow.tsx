@@ -250,34 +250,20 @@ export function TransactionRow({
               ) : null}
             </div>
           ) : null}
-          <span className="flex flex-col items-end">
-            <span className={`font-mono tabular-nums font-bold ${
-              amountTone === 'positive'
-                ? 'text-income'
-                : amountTone === 'negative'
-                  ? 'text-expense'
-                  : 'text-foreground'
-            } ${isCompact ? 'text-sm' : 'text-base'}`}>
-              {sign}
-              {/* 外币显示其币种符号(JP¥/US$…,与本位币一眼区分);本位币维持纯数字 */}
-              {isForeignCurrency ? currencySymbol(row.currency_code as string) : ''}
-              {row.amount.toLocaleString('zh-CN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}
-            </span>
-            {/* ≈折算:金额右下角小字(反馈12) */}
-            {isForeignCurrency ? (
-              <span
-                className="font-mono tabular-nums text-[11px] leading-tight text-muted-foreground"
-                title={t('transactions.convertedToBase')}
-              >
-                ≈{(row.native_amount as number).toLocaleString('zh-CN', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2
-                })}
-              </span>
-            ) : null}
+          <span className={`font-mono tabular-nums font-bold ${
+            amountTone === 'positive'
+              ? 'text-income'
+              : amountTone === 'negative'
+                ? 'text-expense'
+                : 'text-foreground'
+          } ${isCompact ? 'text-sm' : 'text-base'}`}>
+            {sign}
+            {/* 外币显示其币种符号(JP¥/US$…,与本位币一眼区分);本位币维持纯数字 */}
+            {isForeignCurrency ? currencySymbol(row.currency_code as string) : ''}
+            {row.amount.toLocaleString('zh-CN', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            })}
           </span>
         </div>
 
@@ -322,11 +308,24 @@ export function TransactionRow({
           ) : null}
         </div>
 
-        {/* 右下:创建/编辑头像 chip — self-end 钉到 row 底部,跟左下 meta
-            同 grid row,水平 baseline 自动对齐 */}
-        <div className="mt-1 flex shrink-0 items-center justify-end self-end">
+        {/* 右下:≈折算(反馈14:与左下时间行平齐)+ 创建/编辑头像 chip —
+            self-end 钉到 row 底部,跟左下 meta 同 grid row,水平自动对齐 */}
+        <div className="mt-1 flex shrink-0 items-center justify-end gap-2 self-end">
           {showCreator ? (
             <CreatorEditorChip row={row} currentUserId={currentUserId} t={t} />
+          ) : null}
+          {isForeignCurrency ? (
+            <span
+              className={`font-mono tabular-nums text-muted-foreground ${
+                isCompact ? 'text-[11px]' : 'text-xs'
+              }`}
+              title={t('transactions.convertedToBase')}
+            >
+              ≈{(row.native_amount as number).toLocaleString('zh-CN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+            </span>
           ) : null}
         </div>
       </div>
