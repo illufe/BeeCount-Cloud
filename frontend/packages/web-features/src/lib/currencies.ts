@@ -52,6 +52,22 @@ export function currencySymbol(code: string, locale = 'zh-CN'): string {
   }
 }
 
+/** 币种码 → ISO 国家码(国旗用)。前两位派生;欧盟/台币/区域货币特例。
+ *  与 App lib/utils/currencies.dart countryCodeForCurrency 对齐。 */
+const _CURRENCY_COUNTRY: Record<string, string | null> = {
+  EUR: 'EU',
+  TWD: 'CN', // 新台币显示中国国旗(中国大陆市场合规)
+  XAF: null, XOF: null, XCD: null, XPF: null,
+  XDR: null, XAU: null, XAG: null, XPT: null, XPD: null,
+}
+
+export function countryCodeForCurrency(code: string): string | null {
+  const c = (code || '').trim().toUpperCase()
+  if (c in _CURRENCY_COUNTRY) return _CURRENCY_COUNTRY[c]
+  if (c.length < 2) return null
+  return c.slice(0, 2)
+}
+
 export function currencyDisplayName(code: string, locale: string): string {
   const upper = code.toUpperCase()
   try {

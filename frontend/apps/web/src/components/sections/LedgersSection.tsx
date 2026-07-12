@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { BarChart3, Pencil, Trash2, TrendingDown, TrendingUp, Upload, UserPlus, Users } from 'lucide-react'
 
 import type { ReadLedger } from '@beecount/api-client'
+import { fetchExchangeRates } from '@beecount/api-client'
 import {
   Button,
   Card,
@@ -26,6 +27,7 @@ import {
 } from '@beecount/web-features'
 
 import { useLedgers } from '../../context/LedgersContext'
+import { useAuth } from '../../context/AuthContext'
 import { JoinSharedLedgerDialog } from '../JoinSharedLedgerDialog'
 import { SharedLedgerManageDialog } from '../SharedLedgerManageDialog'
 import { SharedLedgerStatsDialog } from '../SharedLedgerStatsDialog'
@@ -418,7 +420,30 @@ export function LedgerEditDialog({
   meta,
 }: LedgerEditDialogProps) {
   const t = useT()
+  const { token } = useAuth()
   const [submitting, setSubmitting] = useState(false)
+  // v30 多币种:币种选择弹窗展示各币种对账本主币种的汇率(1 该币种 = x 主币种)。
+  // fetchExchangeRates 返回 1 base = y quote,取倒数得 ratesToBase。
+  const rateBase = (form.currency || 'CNY').toUpperCase()
+  const [ratesToBase, setRatesToBase] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!open || !token) return
+    let cancelled = false
+    fetchExchangeRates(token, rateBase)
+      .then((res) => {
+        if (cancelled) return
+        const m: Record<string, number> = {}
+        for (const [q, v] of Object.entries(res.rates || {})) {
+          const y = Number(v)
+          if (Number.isFinite(y) && y > 0) m[q.toUpperCase()] = 1 / y
+        }
+        setRatesToBase(m)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, rateBase, token])
   const handleSubmit = async () => {
     setSubmitting(true)
     try {
@@ -450,6 +475,8 @@ export function LedgerEditDialog({
             <CurrencySelectorTrigger
               value={form.currency || 'CNY'}
               onChange={(code) => onChange({ ...form, currency: code })}
+              ratesToBase={ratesToBase}
+              rateBase={rateBase}
             />
           </div>
           <div className="space-y-1">
