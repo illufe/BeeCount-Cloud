@@ -250,32 +250,34 @@ export function TransactionRow({
               ) : null}
             </div>
           ) : null}
-          <span className={`font-mono tabular-nums font-bold ${
-            amountTone === 'positive'
-              ? 'text-income'
-              : amountTone === 'negative'
-                ? 'text-expense'
-                : 'text-foreground'
-          } ${isCompact ? 'text-sm' : 'text-base'}`}>
-            {/* (≈折算) 前置小字:主金额保持行尾右对齐,金额列上下对齐不乱 */}
+          <span className="flex flex-col items-end">
+            <span className={`font-mono tabular-nums font-bold ${
+              amountTone === 'positive'
+                ? 'text-income'
+                : amountTone === 'negative'
+                  ? 'text-expense'
+                  : 'text-foreground'
+            } ${isCompact ? 'text-sm' : 'text-base'}`}>
+              {sign}
+              {/* 外币显示其币种符号(JP¥/US$…,与本位币一眼区分);本位币维持纯数字 */}
+              {isForeignCurrency ? currencySymbol(row.currency_code as string) : ''}
+              {row.amount.toLocaleString('zh-CN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+            </span>
+            {/* ≈折算:金额右下角小字(反馈12) */}
             {isForeignCurrency ? (
               <span
-                className="mr-1.5 align-middle text-[11px] font-normal text-muted-foreground"
+                className="font-mono tabular-nums text-[11px] leading-tight text-muted-foreground"
                 title={t('transactions.convertedToBase')}
               >
-                (≈{(row.native_amount as number).toLocaleString('zh-CN', {
+                ≈{(row.native_amount as number).toLocaleString('zh-CN', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2
-                })})
+                })}
               </span>
             ) : null}
-            {sign}
-            {/* 外币显示其币种符号(JP¥/US$…,与本位币一眼区分);本位币维持纯数字 */}
-            {isForeignCurrency ? currencySymbol(row.currency_code as string) : ''}
-            {row.amount.toLocaleString('zh-CN', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2
-            })}
           </span>
         </div>
 
