@@ -47,6 +47,7 @@ import {
 } from '@beecount/ui'
 
 import {
+  fetchExchangeRates,
   ApiError,
   batchAttachmentExists,
   batchDeleteTransactions,
@@ -500,18 +501,21 @@ export function TransactionsPage() {
     [sharedBundle],
   )
 
+  // v30 多币种(币种优先联动):账户下拉按表单所选币种过滤(默认=账本本位币,
+  // 与旧行为一致;选了 JPY → 只显示 JPY 账户)。
+  const txFormCurrency = (txForm.currency || txWriteLedgerCurrency).toUpperCase()
   const txWriteAccounts = useMemo(() => {
     const source =
       txIsSharedEditor && sharedBundle ? sharedAsRead.accounts : txDictionaryAccounts
     return source.filter((row) => {
       const currency = (row.currency || 'CNY').trim().toUpperCase()
-      if (currency !== txWriteLedgerCurrency) return false
+      if (currency !== txFormCurrency) return false
       if (VALUATION_ACCOUNT_TYPES.has(row.account_type || '')) return false
       return true
     })
   }, [
     txDictionaryAccounts,
-    txWriteLedgerCurrency,
+    txFormCurrency,
     VALUATION_ACCOUNT_TYPES,
     txIsSharedEditor,
     sharedBundle,
@@ -1412,6 +1416,29 @@ export function TransactionsPage() {
         .map((value) => tagByName.get(value.trim().toLowerCase()))
         .filter((value): value is string => Boolean(value))
 
+      // v30 多币种:所选币种 ≠ 账本本位币 → 按 server 有效汇率折本位币快照。
+      // 拉不到汇率就阻断保存(绝不静默 1:1,与 App 端 L8 一致)。transfer 不带。
+      let currencyFields: { currency_code?: string; native_amount?: number } = {}
+      const submitAmount = Number(txForm.amount || 0)
+      if (!isTransfer && txFormCurrency !== txWriteLedgerCurrency) {
+        try {
+          const ratesRes = await fetchExchangeRates(token, txWriteLedgerCurrency)
+          const raw =
+            ratesRes.rates[txFormCurrency] ??
+            ratesRes.rates[txFormCurrency.toLowerCase()]
+          const rate = Number(raw)
+          if (!Number.isFinite(rate) || rate <= 0) throw new Error('rate missing')
+          // fawaz 方向:1 本位币 = rate 外币 → 外币金额折本位币 = amount / rate
+          currencyFields = {
+            currency_code: txFormCurrency,
+            native_amount: submitAmount / rate
+          }
+        } catch {
+          setErrorNotice(t('transactions.error.rateMissing'))
+          return false
+        }
+      }
+
       const payload = {
         tx_type: txForm.tx_type,
         amount: Number(txForm.amount || 0),
@@ -1431,7 +1458,8 @@ export function TransactionsPage() {
         attachments: txForm.attachments.length > 0 ? txForm.attachments : null,
         // §三 标记按 type 条件落库:转账两者都 false;收入只允许 stats;支出两者都允许。
         exclude_from_stats: isTransfer ? false : txForm.exclude_from_stats,
-        exclude_from_budget: txForm.tx_type === 'expense' ? txForm.exclude_from_budget : false
+        exclude_from_budget: txForm.tx_type === 'expense' ? txForm.exclude_from_budget : false,
+        ...currencyFields
       }
       // eslint-disable-next-line no-console
       console.info('[tx-save] request', {
@@ -1877,6 +1905,7 @@ export function TransactionsPage() {
                 />
               ) : null}
               <TransactionsPanel
+                baseCurrency={txWriteLedgerCurrency}
                 noteDisplayMode={profileMe?.appearance?.note_display_mode ?? 'category'}
                 selectionMode={selectionMode}
                 selectedIds={selectedTxIds}
@@ -1939,6 +1968,9 @@ export function TransactionsPage() {
                     account_name: tx.account_name || '',
                     from_account_name: tx.from_account_name || '',
                     to_account_name: tx.to_account_name || '',
+                    currency: (tx.currency_code || '').toUpperCase() === txWriteLedgerCurrency
+                      ? ''
+                      : (tx.currency_code || '').toUpperCase(),
                     tags:
                       tx.tags_list && tx.tags_list.length > 0
                         ? tx.tags_list

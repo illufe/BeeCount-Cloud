@@ -541,6 +541,10 @@ export type TxPayload = {
   tx_type: 'expense' | 'income' | 'transfer'
   amount: number
   happened_at: string
+  /** 交易级多币种(0018):原币种;不传 = 账本本位币(不产生字段)。 */
+  currency_code?: string | null
+  /** 折账本本位币的金额快照(前端按 server 汇率算好传入)。 */
+  native_amount?: number | null
   note?: string | null
   category_name?: string | null
   category_kind?: 'expense' | 'income' | 'transfer' | null

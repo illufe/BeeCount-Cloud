@@ -3,6 +3,7 @@ import { useT } from '@beecount/ui'
 
 import { CategoryIcon } from './CategoryIcon'
 import { TagChip } from './TagChip'
+import { currencySymbol } from '../lib/currencies'
 import { composeTransactionRowTitle, type NoteDisplayMode } from '../lib/transactionRowTitle'
 
 export type TransactionRowVariant = 'default' | 'compact'
@@ -249,33 +250,27 @@ export function TransactionRow({
               ) : null}
             </div>
           ) : null}
-          <span className="flex flex-col items-end">
-            <span className={`font-mono tabular-nums font-bold ${
-              amountTone === 'positive'
-                ? 'text-income'
-                : amountTone === 'negative'
-                  ? 'text-expense'
-                  : 'text-foreground'
-            } ${isCompact ? 'text-sm' : 'text-base'}`}>
-              {sign}
-              {row.amount.toLocaleString('zh-CN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-              })}
-              {isForeignCurrency ? (
-                <span className="ml-1 align-middle text-[10px] font-medium text-muted-foreground">
-                  {row.currency_code}
-                </span>
-              ) : null}
-            </span>
-            {/* 交易级多币种:外币交易(折算快照 ≠ 原币值)加一行 ≈ 账本本位币。
-                账本统计口径与此折算一致(记账时汇率,不随汇率变)。 */}
+          <span className={`font-mono tabular-nums font-bold ${
+            amountTone === 'positive'
+              ? 'text-income'
+              : amountTone === 'negative'
+                ? 'text-expense'
+                : 'text-foreground'
+          } ${isCompact ? 'text-sm' : 'text-base'}`}>
+            {sign}
+            {/* 外币显示其币种符号(JP¥/US$…,与本位币一眼区分);本位币维持纯数字 */}
+            {isForeignCurrency ? currencySymbol(row.currency_code as string) : ''}
+            {row.amount.toLocaleString('zh-CN', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            })}
+            {/* ≈ 折算同行尾随小字(不换行不撑高);统计口径与此折算一致 */}
             {isForeignCurrency ? (
               <span
-                className="font-mono tabular-nums text-[11px] text-muted-foreground"
+                className="ml-1.5 align-middle text-[11px] font-normal text-muted-foreground"
                 title={t('transactions.convertedToBase')}
               >
-                ≈ {(row.native_amount as number).toLocaleString('zh-CN', {
+                ≈{(row.native_amount as number).toLocaleString('zh-CN', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2
                 })}

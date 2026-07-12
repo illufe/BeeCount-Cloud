@@ -548,6 +548,66 @@ def test_budget_usage_uses_native_amount():
 
 
 # --------------------------------------------------------------------------- #
+# Web 写路径:create/update 显式带两字段(Web 币种录入)                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_mutator_create_with_currency_fields():
+    """Web 新建交易显式带 currency_code/native_amount → snapshot item 落
+    camelCase 两字段(不带则不产生 key,旧行为)。"""
+    from src.snapshot_mutator import create_transaction
+
+    out, tx_id = create_transaction(
+        {"items": []},
+        {"tx_type": "expense", "amount": 12.0,
+         "happened_at": "2026-07-12T00:00:00Z",
+         "currency_code": "USD", "native_amount": 86.4},
+    )
+    item = next(it for it in out["items"] if it["syncId"] == tx_id)
+    assert item["currencyCode"] == "USD"
+    assert item["nativeAmount"] == 86.4
+
+    out2, tx_id2 = create_transaction(
+        {"items": []},
+        {"tx_type": "expense", "amount": 5.0,
+         "happened_at": "2026-07-12T00:00:00Z"},
+    )
+    item2 = next(it for it in out2["items"] if it["syncId"] == tx_id2)
+    assert "currencyCode" not in item2
+    assert "nativeAmount" not in item2
+
+
+def test_web_create_tx_with_currency_lands_in_projection():
+    """POST /write/ledgers/{id}/transactions 带两字段 → 投影两列落值
+    (schema 白名单不放行的话 pydantic 会静默丢字段,这条测试锁住白名单)。"""
+    client, TS = _make_client()
+    try:
+        app_token, web_token = _two_tokens(client, "mc-webwrite@t.com")
+        hdr_app = {"Authorization": f"Bearer {app_token}"}
+        hdr_web = {"Authorization": f"Bearer {web_token}",
+                   "X-Device-ID": "d-web"}
+        _push(client, hdr_app, "lg1", "ledger", "lg1",
+              {"syncId": "lg1", "ledgerName": "L", "currency": "CNY"})
+
+        r = client.post(
+            "/api/v1/write/ledgers/lg1/transactions",
+            headers=hdr_web,
+            json={"base_change_id": 0, "tx_type": "expense", "amount": 12.0,
+                  "happened_at": "2026-07-12T00:00:00+00:00",
+                  "currency_code": "USD", "native_amount": 86.4},
+        )
+        assert r.status_code == 200, r.text
+        lid = _ledger_internal_id(TS, "lg1")
+        with TS() as db:
+            row = db.scalar(select(ReadTxProjection).where(
+                ReadTxProjection.ledger_id == lid))
+            assert row.currency_code == "USD"
+            assert abs(row.native_amount - 86.4) < 1e-9
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --------------------------------------------------------------------------- #
 # snapshot_builder:full pull 重建的 item 必须带两字段                          #
 # --------------------------------------------------------------------------- #
 

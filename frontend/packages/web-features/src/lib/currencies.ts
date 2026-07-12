@@ -33,6 +33,25 @@ export const CURRENCY_REGION_GROUPS = CURRENCY_GROUPS
  * 组件层优先用 i18n key `currency.<CODE>` 覆盖(主流币种保留人工译名),
  * 仅在无覆盖时调用本函数 —— 这样长尾币种也能自动按当前语言显示名称。
  */
+/**
+ * 从 Intl.NumberFormat 派生币种符号(zh-CN:CNY→"¥"、JPY→"JP¥"、USD→"US$")。
+ * 用 currencyDisplay:'symbol'(非 narrowSymbol):JPY/CNY 的 narrow 同为 "¥",
+ * 多币种列表里无法区分 —— symbol 形态自带区分前缀。未知 code 回退 code 本身。
+ */
+export function currencySymbol(code: string, locale = 'zh-CN'): string {
+  const upper = code.toUpperCase()
+  try {
+    const parts = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: upper,
+      currencyDisplay: 'symbol',
+    }).formatToParts(1)
+    return parts.find((p) => p.type === 'currency')?.value || upper
+  } catch {
+    return upper
+  }
+}
+
 export function currencyDisplayName(code: string, locale: string): string {
   const upper = code.toUpperCase()
   try {

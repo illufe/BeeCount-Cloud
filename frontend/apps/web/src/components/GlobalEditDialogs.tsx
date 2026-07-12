@@ -120,6 +120,9 @@ export function GlobalEditDialogs() {
         tx_type: tx.tx_type,
         amount: String(tx.amount),
         happened_at: tx.happened_at,
+        // v30 多币种:回显该笔币种(此弹窗不改币种;金额变更的折算联动由
+        // server mutator L14 兜底)
+        currency: (tx.currency_code || '').toUpperCase(),
         note: tx.note || '',
         category_name: tx.category_name || '',
         category_kind: (tx.category_kind as TxForm['category_kind']) || 'expense',

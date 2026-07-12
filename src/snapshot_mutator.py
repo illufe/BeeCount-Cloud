@@ -282,6 +282,12 @@ def create_transaction(snapshot: dict, payload: dict) -> tuple[dict, str]:
         "amount": _to_float(payload.get("amount")),
         "happenedAt": _to_iso8601(payload.get("happened_at")),
     }
+    # 交易级多币种(0018):Web 币种录入显式传入才写;不传不产生 key
+    # (upsert 落 NULL → 统计 COALESCE 回退,旧行为)。
+    if payload.get("currency_code") is not None:
+        item["currencyCode"] = str(payload.get("currency_code")).upper()
+    if payload.get("native_amount") is not None:
+        item["nativeAmount"] = _to_float(payload.get("native_amount"))
     if payload.get("note") is not None:
         item["note"] = str(payload.get("note"))
     if payload.get("category_name") is not None:
@@ -361,8 +367,10 @@ def update_transaction(snapshot: dict, tx_id: str, payload: dict) -> dict:
                     item["nativeAmount"] = old_native / old_amount * new_amount
         item["amount"] = new_amount
     if payload.get("native_amount") is not None:
-        # 显式传入优先(未来 Web 折算录入的口子);None = 不变。
+        # 显式传入优先(Web 折算录入);None = 不变。
         item["nativeAmount"] = _to_float(payload.get("native_amount"))
+    if payload.get("currency_code") is not None:
+        item["currencyCode"] = str(payload.get("currency_code")).upper()
     if "happened_at" in payload:
         item["happenedAt"] = _to_iso8601(payload.get("happened_at"))
 

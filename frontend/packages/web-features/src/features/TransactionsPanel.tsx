@@ -28,6 +28,7 @@ import type {
   WorkspaceCategory,
 } from '@beecount/api-client'
 
+import { CURRENCY_CODES } from '../lib/currencies'
 import { CategoryPickerDialog } from '../components/CategoryPickerDialog'
 import { CategoryIcon } from '../components/CategoryIcon'
 import { TagPickerDialog } from '../components/TagPickerDialog'
@@ -37,6 +38,8 @@ import type { TxForm } from '../forms'
 
 type TransactionsPanelProps = {
   form: TxForm
+  /** 账本本位币(大写 ISO)。币种下拉默认值;选=本位币时 form.currency 存 ''。 */
+  baseCurrency?: string
   rows: ReadTransaction[]
   total: number
   page: number
@@ -230,6 +233,7 @@ function AttachmentCarouselCell({
 
 export function TransactionsPanel({
   form,
+  baseCurrency = 'CNY',
   rows,
   total,
   page,
@@ -425,11 +429,39 @@ export function TransactionsPanel({
             </div>
             <div className="space-y-1">
               <Label>{t('transactions.table.amount')}</Label>
-              <Input
-                placeholder={t('transactions.placeholder.amount')}
-                value={form.amount}
-                onChange={(e) => onFormChange({ ...form, amount: e.target.value })}
-              />
+              <div className="flex gap-2">
+                <Input
+                  placeholder={t('transactions.placeholder.amount')}
+                  value={form.amount}
+                  onChange={(e) => onFormChange({ ...form, amount: e.target.value })}
+                  className="flex-1"
+                />
+                {/* v30 多币种:币种选择紧挨金额;选非本位币 → 账户下拉按币种
+                    过滤 + 已选账户清空(币种优先联动,transfer 不支持)。 */}
+                {form.tx_type !== 'transfer' ? (
+                  <Select
+                    value={form.currency || baseCurrency}
+                    onValueChange={(value) =>
+                      onFormChange({
+                        ...form,
+                        currency: value === baseCurrency ? '' : value,
+                        account_name: ''
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-24 shrink-0">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CURRENCY_CODES.map((code) => (
+                        <SelectItem key={code} value={code}>
+                          {code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </div>
             </div>
             <div className="space-y-1">
               <Label>{t('transactions.table.time')}</Label>

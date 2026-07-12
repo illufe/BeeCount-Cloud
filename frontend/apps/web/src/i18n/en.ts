@@ -1083,6 +1083,7 @@ const en = {
   'transactions.table.type': 'type',
   'transactions.table.amount': 'amount',
   'transactions.convertedToBase': 'Converted to ledger base currency at the rate recorded at entry time',
+  'transactions.error.rateMissing': 'Failed to get exchange rate; cannot convert to ledger base currency. Try again later.',
   'transactions.table.category': 'category',
   'transactions.table.account': 'account',
   'transactions.table.attachments': 'attachments',
