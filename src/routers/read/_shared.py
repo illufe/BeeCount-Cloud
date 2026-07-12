@@ -434,19 +434,25 @@ def _projection_totals(
 
     账本维度口径(交易级多币种,0018):折账本本位币,读 native_amount,
     NULL(旧 App 推的 / 存量)回退 amount。单币种账本 native==amount,结果不变。
-    账户维度(workspace/accounts 按 account_sync_id 聚合)仍读 amount 原币,不要仿此改。"""
+    账户维度(workspace/accounts 按 account_sync_id 聚合)仍读 amount 原币,不要仿此改。
+
+    收支 SUM 排除 exclude_from_stats=True 的标记笔(#340 D1,补 0017 的遗漏:
+    此前只有 analytics 过滤了,账本卡片没过滤 → 两处统计对不上)。tx_count /
+    latest 不过滤 —— D1 语义:标记只排收支金额,仍计入账单列表与笔数。"""
     from sqlalchemy import case as sa_case
+    from sqlalchemy import false as sa_false
 
     _native = func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount)
+    _counted = ReadTxProjection.exclude_from_stats == sa_false()
     row = db.execute(
         select(
             func.count(ReadTxProjection.sync_id),
             func.coalesce(func.sum(
-                sa_case((ReadTxProjection.tx_type == "income", _native),
+                sa_case(((ReadTxProjection.tx_type == "income") & _counted, _native),
                         else_=0.0)
             ), 0.0),
             func.coalesce(func.sum(
-                sa_case((ReadTxProjection.tx_type == "expense", _native),
+                sa_case(((ReadTxProjection.tx_type == "expense") & _counted, _native),
                         else_=0.0)
             ), 0.0),
             func.max(ReadTxProjection.happened_at),

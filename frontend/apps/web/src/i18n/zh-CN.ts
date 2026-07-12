@@ -92,12 +92,12 @@ const zhCN = {
 
   // 账本列表页
   'ledgers.title': '账本',
-  'ledgers.subtitle': '点击账本卡片可编辑名称和币种,顶部「新建账本」可直接创建。',
+  'ledgers.subtitle': '点击账本卡片可编辑名称和主币种,顶部「新建账本」可直接创建。',
   'ledgers.empty': '还没有账本,点击「新建账本」开始记录。',
   'ledgers.button.create': '新建账本',
   'ledgers.button.update': '保存修改',
   'ledgers.field.name': '账本名称',
-  'ledgers.field.currency': '币种',
+  'ledgers.field.currency': '主币种',
   'ledgers.field.monthStartDay': '每月起始日',
   'ledgers.monthStartDay.hint': '统计与预算按该日作为每月周期起点（1-28），1 为自然月',
   'ledgers.placeholder.name': '如:家庭账本 / 个人账本',
@@ -118,7 +118,7 @@ const zhCN = {
   'ledgers.delete.stats.attachments': '个附件',
   'ledgers.delete.sharedWarning': '该账本还有 {count} 名成员,删除后他们将一并失去访问权。',
   'ledgers.col.name': '名称',
-  'ledgers.col.currency': '币种',
+  'ledgers.col.currency': '主币种',
   'ledgers.col.tx': '交易数',
   'ledgers.col.income': '收入',
   'ledgers.col.expense': '支出',

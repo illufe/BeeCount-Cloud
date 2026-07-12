@@ -607,6 +607,33 @@ def test_web_create_tx_with_currency_lands_in_projection():
         app.dependency_overrides.clear()
 
 
+def test_ledger_totals_exclude_flagged_transactions():
+    """账本卡片(_projection_totals)的收支排除 exclude_from_stats 标记笔
+    (#340 D1;此前只有 analytics 过滤 → 两处统计对不上,反馈18)。
+    笔数不过滤(标记笔仍计入账单列表)。"""
+    client, TS = _make_client()
+    try:
+        app_token, web_token = _two_tokens(client, "mc-excl@t.com")
+        hdr_app = {"Authorization": f"Bearer {app_token}"}
+        hdr_web = {"Authorization": f"Bearer {web_token}"}
+        _push(client, hdr_app, "lg1", "ledger", "lg1",
+              {"syncId": "lg1", "ledgerName": "L", "currency": "CNY"})
+        _push(client, hdr_app, "lg1", "transaction", "t1",
+              {"syncId": "t1", "type": "expense", "amount": 100.0,
+               "happenedAt": _iso()})
+        _push(client, hdr_app, "lg1", "transaction", "t2",
+              {"syncId": "t2", "type": "income", "amount": 1.0,
+               "excludeFromStats": True, "happenedAt": _iso()})
+
+        r = client.get("/api/v1/read/ledgers", headers=hdr_web)
+        row = next(x for x in r.json() if x["ledger_id"] == "lg1")
+        assert row["expense_total"] == 100.0
+        assert row["income_total"] == 0.0, "标记笔不得计入收入"
+        assert row["transaction_count"] == 2, "笔数不过滤(D1)"
+    finally:
+        app.dependency_overrides.clear()
+
+
 # --------------------------------------------------------------------------- #
 # CSV 导出/导入:币种列(反馈10)                                                 #
 # --------------------------------------------------------------------------- #
