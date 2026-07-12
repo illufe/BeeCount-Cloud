@@ -16,6 +16,7 @@ import {
 import { useT, useToast } from '@beecount/ui'
 import {
   resolveCurrencyFields,
+  loadRatesToBase,
   CategoriesPanel,
   categoryDefaults,
   TransactionsPanel,
@@ -61,6 +62,25 @@ export function GlobalEditDialogs() {
   const [editTxCategories, setEditTxCategories] = useState<WorkspaceCategory[]>([])
   const [editTxTags, setEditTxTags] = useState<WorkspaceTag[]>([])
   const [refsLoading, setRefsLoading] = useState(false)
+  // v30 多币种:编辑交易时币种弹窗展示各币种对账本主币种的汇率。
+  const editTxBase = (
+    ledgers.find((l) => l.ledger_id === editTxLedgerId)?.currency || 'CNY'
+  )
+    .trim()
+    .toUpperCase()
+  const [editTxRates, setEditTxRates] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!token || !editTxOpen) return
+    let cancelled = false
+    loadRatesToBase(token, editTxBase)
+      .then((m) => {
+        if (!cancelled) setEditTxRates(m)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [token, editTxOpen, editTxBase])
 
   // 分类编辑相关
   const [editCatOpen, setEditCatOpen] = useState(false)
@@ -394,11 +414,8 @@ export function GlobalEditDialogs() {
     <>
       <TransactionsPanel
       dialogOnlyMode
-      baseCurrency={(
-        ledgers.find((l) => l.ledger_id === editTxLedgerId)?.currency || 'CNY'
-      )
-        .trim()
-        .toUpperCase()}
+      baseCurrency={editTxBase}
+      currencyRates={editTxRates}
       form={editTxForm}
       rows={[]}
       total={0}
@@ -407,12 +424,7 @@ export function GlobalEditDialogs() {
       accounts={editTxAccounts.filter((a) => {
         // 币种优先联动:账户下拉只显示「表单所选币种(默认=账本主币种)」的
         // 账户,防止选出币种与账户不一致的组合(与 TransactionsPage 同规则)
-        const base = (
-          ledgers.find((l) => l.ledger_id === editTxLedgerId)?.currency || 'CNY'
-        )
-          .trim()
-          .toUpperCase()
-        const wanted = (editTxForm.currency || base).toUpperCase()
+        const wanted = (editTxForm.currency || editTxBase).toUpperCase()
         return ((a.currency || 'CNY').trim().toUpperCase()) === wanted
       })}
       categories={editTxCategories}

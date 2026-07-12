@@ -28,7 +28,7 @@ import type {
   WorkspaceCategory,
 } from '@beecount/api-client'
 
-import { CURRENCY_CODES } from '../lib/currencies'
+import { CurrencySelectorTrigger } from '../components/CurrencySelector'
 import { CategoryPickerDialog } from '../components/CategoryPickerDialog'
 import { CategoryIcon } from '../components/CategoryIcon'
 import { TagPickerDialog } from '../components/TagPickerDialog'
@@ -40,6 +40,8 @@ type TransactionsPanelProps = {
   form: TxForm
   /** 账本本位币(大写 ISO)。币种下拉默认值;选=本位币时 form.currency 存 ''。 */
   baseCurrency?: string
+  /** v30 多币种:各币种对 baseCurrency 的汇率(1 quote ≈ x base),透传币种选择弹窗展示。 */
+  currencyRates?: Record<string, number>
   rows: ReadTransaction[]
   total: number
   page: number
@@ -234,6 +236,7 @@ function AttachmentCarouselCell({
 export function TransactionsPanel({
   form,
   baseCurrency = 'CNY',
+  currencyRates,
   rows,
   total,
   page,
@@ -432,39 +435,31 @@ export function TransactionsPanel({
             </div>
             <div className="space-y-1">
               <Label>{t('transactions.table.amount')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder={t('transactions.placeholder.amount')}
-                  value={form.amount}
-                  onChange={(e) => onFormChange({ ...form, amount: e.target.value })}
-                  className="flex-1"
+              <Input
+                placeholder={t('transactions.placeholder.amount')}
+                value={form.amount}
+                onChange={(e) => onFormChange({ ...form, amount: e.target.value })}
+              />
+              {/* v30 多币种:币种另起一行,全宽显示币种全名+国旗(挨金额太窄会截断);
+                  选非本位币 → 账户下拉按币种过滤 + 已选账户清空(币种优先联动,
+                  transfer 不支持)。 */}
+              {form.tx_type !== 'transfer' ? (
+                <CurrencySelectorTrigger
+                  value={form.currency || baseCurrency}
+                  onChange={(code) =>
+                    onFormChange({
+                      ...form,
+                      currency:
+                        code.toUpperCase() === baseCurrency.toUpperCase()
+                          ? ''
+                          : code,
+                      account_name: ''
+                    })
+                  }
+                  ratesToBase={currencyRates}
+                  rateBase={baseCurrency}
                 />
-                {/* v30 多币种:币种选择紧挨金额;选非本位币 → 账户下拉按币种
-                    过滤 + 已选账户清空(币种优先联动,transfer 不支持)。 */}
-                {form.tx_type !== 'transfer' ? (
-                  <Select
-                    value={form.currency || baseCurrency}
-                    onValueChange={(value) =>
-                      onFormChange({
-                        ...form,
-                        currency: value === baseCurrency ? '' : value,
-                        account_name: ''
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-24 shrink-0">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CURRENCY_CODES.map((code) => (
-                        <SelectItem key={code} value={code}>
-                          {code}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : null}
-              </div>
+              ) : null}
             </div>
             <div className="space-y-1">
               <Label>{t('transactions.table.time')}</Label>
@@ -560,7 +555,7 @@ export function TransactionsPanel({
               </>
             ) : (
               <div className="space-y-1">
-                <Label>{t('accounts.title')}</Label>
+                <Label>{t('transactions.table.account')}</Label>
                 <Select
                   // Radix SelectItem 不允许 value=""(undefined-state 由 placeholder
                   // 渲染),所以用 sentinel "__none__" 表示"不选账户"。和 form 的

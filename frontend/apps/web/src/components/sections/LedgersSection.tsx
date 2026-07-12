@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { BarChart3, Pencil, Trash2, TrendingDown, TrendingUp, Upload, UserPlus, Users } from 'lucide-react'
 
 import type { ReadLedger } from '@beecount/api-client'
-import { fetchExchangeRates } from '@beecount/api-client'
 import {
   Button,
   Card,
@@ -24,6 +23,7 @@ import {
   Amount,
   CurrencySelectorTrigger,
   formatIsoDateTime,
+  loadRatesToBase,
 } from '@beecount/web-features'
 
 import { useLedgers } from '../../context/LedgersContext'
@@ -422,22 +422,15 @@ export function LedgerEditDialog({
   const t = useT()
   const { token } = useAuth()
   const [submitting, setSubmitting] = useState(false)
-  // v30 多币种:币种选择弹窗展示各币种对账本主币种的汇率(1 该币种 = x 主币种)。
-  // fetchExchangeRates 返回 1 base = y quote,取倒数得 ratesToBase。
+  // v30 多币种:币种选择弹窗展示各币种对账本主币种的汇率(1 该币种 ≈ x 主币种,含手动 override)。
   const rateBase = (form.currency || 'CNY').toUpperCase()
   const [ratesToBase, setRatesToBase] = useState<Record<string, number>>({})
   useEffect(() => {
     if (!open || !token) return
     let cancelled = false
-    fetchExchangeRates(token, rateBase)
-      .then((res) => {
-        if (cancelled) return
-        const m: Record<string, number> = {}
-        for (const [q, v] of Object.entries(res.rates || {})) {
-          const y = Number(v)
-          if (Number.isFinite(y) && y > 0) m[q.toUpperCase()] = 1 / y
-        }
-        setRatesToBase(m)
+    loadRatesToBase(token, rateBase)
+      .then((m) => {
+        if (!cancelled) setRatesToBase(m)
       })
       .catch(() => {})
     return () => {

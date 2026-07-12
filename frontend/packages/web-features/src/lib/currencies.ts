@@ -120,6 +120,28 @@ async function _effectiveRates(token: string, base: string): Promise<RatesEntry>
   return entry
 }
 
+/**
+ * 币种选择弹窗展示用:各币种对 base 的汇率 map(key=quote 大写,value=1 quote ≈ value base)。
+ * 复用 _effectiveRates(5min 缓存 + 手动 override 合并)。fawaz auto 方向是
+ * 1 base = rate quote,取倒数;手动 override 本就是 1 quote = rate base,直接覆盖 auto。
+ * 账本币种弹窗 / 记账币种选择共用,替代各处手写的 fetchExchangeRates + 1/y。
+ */
+export async function loadRatesToBase(
+  token: string,
+  base: string
+): Promise<Record<string, number>> {
+  const entry = await _effectiveRates(token, base.trim().toUpperCase())
+  const out: Record<string, number> = {}
+  for (const [q, v] of Object.entries(entry.auto)) {
+    const y = Number(v)
+    if (Number.isFinite(y) && y > 0) out[q.toUpperCase()] = 1 / y
+  }
+  for (const [q, r] of entry.overrides) {
+    if (Number.isFinite(r) && r > 0) out[q] = r // 手动汇率优先
+  }
+  return out
+}
+
 export async function resolveCurrencyFields(opts: {
   token: string
   ledgerBase: string

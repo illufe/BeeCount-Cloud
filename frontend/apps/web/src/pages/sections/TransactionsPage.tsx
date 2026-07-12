@@ -82,6 +82,7 @@ import {
 
 import {
   resolveCurrencyFields,
+  loadRatesToBase,
   CategoryPickerDialog,
   ConfirmDialog,
   TagPickerDialog,
@@ -482,6 +483,20 @@ export function TransactionsPage() {
     const hit = ledgers.find((ledger) => ledger.ledger_id === (txWriteLedgerId || activeLedgerId))
     return (hit?.currency || 'CNY').trim().toUpperCase()
   }, [ledgers, txWriteLedgerId, activeLedgerId])
+  // v30 多币种:币种选择弹窗展示各币种对账本主币种的汇率(弹窗开时拉,5min 缓存)。
+  const [txCurrencyRates, setTxCurrencyRates] = useState<Record<string, number>>({})
+  useEffect(() => {
+    if (!token || !txDialogOpen) return
+    let cancelled = false
+    loadRatesToBase(token, txWriteLedgerCurrency)
+      .then((m) => {
+        if (!cancelled) setTxCurrencyRates(m)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [token, txDialogOpen, txWriteLedgerCurrency])
   // §7 共享账本:当前编辑/查看的账本若是共享账本(Editor 视角),走独立
   // SharedLedgerResources state(Owner 的 user-global 资源镜像),否则走
   // 用户自己的 user-global 字典。逻辑对齐 mobile picker filter。
@@ -1905,6 +1920,7 @@ export function TransactionsPage() {
               ) : null}
               <TransactionsPanel
                 baseCurrency={txWriteLedgerCurrency}
+                currencyRates={txCurrencyRates}
                 noteDisplayMode={profileMe?.appearance?.note_display_mode ?? 'category'}
                 selectionMode={selectionMode}
                 selectedIds={selectedTxIds}

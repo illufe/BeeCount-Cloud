@@ -29,12 +29,12 @@ function CurrencyFlag({ code }: { code: string }) {
   const Flag = country ? _flags[country] : undefined
   if (!Flag) {
     return (
-      <span className="flex h-3.5 w-5 shrink-0 items-center justify-center rounded-sm bg-muted text-[8px] font-semibold text-muted-foreground">
+      <span className="flex h-3.5 w-5 shrink-0 items-center justify-center rounded-[4px] bg-muted text-[8px] font-semibold text-muted-foreground">
         {code.slice(0, 2)}
       </span>
     )
   }
-  return <Flag className="h-3.5 w-5 shrink-0 rounded-sm" title={code} />
+  return <Flag className="h-3.5 w-5 shrink-0 rounded-[4px]" title={code} />
 }
 
 type CurrencySelectorProps = {
