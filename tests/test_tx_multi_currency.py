@@ -636,6 +636,33 @@ def test_ledger_totals_exclude_flagged_transactions():
         app.dependency_overrides.clear()
 
 
+def test_projection_row_to_tx_dict_carries_currency_fields():
+    """web PATCH update_tx 快路径的 prev_item 序列化器必须带 currencyCode/
+    nativeAmount(反馈:审计发现的 write-path 漏字段)。漏了它 → mutator 的
+    rescale 守卫永不触发 → 编辑外币交易时投影两字段被写 NULL、折算被抹掉。"""
+    from src.routers.write._shared import _projection_row_to_tx_dict
+
+    row = ReadTxProjection(
+        ledger_id="lg1", sync_id="tx1", user_id="u1",
+        tx_type="expense", amount=100.0,
+        happened_at=datetime(2026, 7, 12, tzinfo=timezone.utc),
+        currency_code="USD", native_amount=720.0,
+    )
+    item = _projection_row_to_tx_dict(row)
+    assert item["currencyCode"] == "USD"
+    assert item["nativeAmount"] == 720.0
+
+    # 本位币(NULL)行不产生 key(统计端 COALESCE 兜底)
+    row2 = ReadTxProjection(
+        ledger_id="lg1", sync_id="tx2", user_id="u1",
+        tx_type="expense", amount=5.0,
+        happened_at=datetime(2026, 7, 12, tzinfo=timezone.utc),
+    )
+    item2 = _projection_row_to_tx_dict(row2)
+    assert "currencyCode" not in item2
+    assert "nativeAmount" not in item2
+
+
 def test_web_ledger_currency_change_recalcs_projection(monkeypatch):
     """Web 改主币种(反馈20):mutate 重算 snapshot.items 折算 → diff 基建自动
     生成每笔 tx change + 更新投影。旧本位币(NULL/CNY)交易按新本位币折算,
