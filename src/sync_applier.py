@@ -453,10 +453,10 @@ def _sync_native_amount_after_merge(existing, payload: dict, merged: dict) -> di
         return merged
     if new_amount == old_amount:
         return merged
-    if old_amount == 0.0 or old_native == old_amount:
-        merged["nativeAmount"] = new_amount
-    else:
-        merged["nativeAmount"] = old_native / old_amount * new_amount
+    from .snapshot_mutator import rescale_native_amount
+
+    merged["nativeAmount"] = rescale_native_amount(
+        old_amount, old_native, new_amount)
     return merged
 
 

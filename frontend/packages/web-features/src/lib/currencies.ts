@@ -61,3 +61,88 @@ export function currencyDisplayName(code: string, locale: string): string {
     return upper
   }
 }
+
+// ---------------------------------------------------------------------------
+// v30 交易折算(记账/编辑提交用)。规则与 App 端对齐:
+//   - 有效汇率 = 手动 override > 自动源(fawaz,1 base = x quote → 除)
+//   - override 方向是「1 quote = rate base」→ 乘
+//   - 编辑模式币种未变 → 返回 null(两字段都不发,金额变化由 server L14 按
+//     该笔隐含汇率联动 —— 避免「只改备注折算被今日汇率重算」的快照漂移)
+//   - 改回本位币 → 显式发 currency_code=base + native=amount(server 语义
+//     None=不变,不发就改不回来)
+//   - 缺汇率 → throw,调用方阻断保存(绝不静默 1:1)
+// ---------------------------------------------------------------------------
+
+import { fetchExchangeRateOverrides, fetchExchangeRates } from '@beecount/api-client'
+
+export type CurrencyFields = { currency_code: string; native_amount: number }
+
+type RatesEntry = {
+  at: number
+  auto: Record<string, unknown>
+  /** quote(大写) → rate(1 quote = rate base) */
+  overrides: Map<string, number>
+}
+const _ratesCache = new Map<string, RatesEntry>()
+const _RATES_TTL_MS = 5 * 60 * 1000
+
+async function _effectiveRates(token: string, base: string): Promise<RatesEntry> {
+  const hit = _ratesCache.get(base)
+  if (hit && Date.now() - hit.at < _RATES_TTL_MS) return hit
+  const [auto, allOverrides] = await Promise.all([
+    fetchExchangeRates(token, base),
+    fetchExchangeRateOverrides(token).catch(() => []),
+  ])
+  const overrides = new Map<string, number>()
+  for (const o of allOverrides) {
+    if ((o.base_currency || '').toUpperCase() !== base) continue
+    const r = Number(o.rate)
+    if (Number.isFinite(r) && r > 0) overrides.set((o.quote_currency || '').toUpperCase(), r)
+  }
+  const entry: RatesEntry = { at: Date.now(), auto: auto.rates || {}, overrides }
+  _ratesCache.set(base, entry)
+  return entry
+}
+
+export async function resolveCurrencyFields(opts: {
+  token: string
+  ledgerBase: string
+  /** 交易币种(表单所选;'' 视作本位币) */
+  currency: string
+  amount: number
+  /** 编辑模式必传:该笔原币种(''=本位币)。币种未变 → 返回 null。
+   *  新建传 undefined。 */
+  originalCurrency?: string | null
+}): Promise<CurrencyFields | null> {
+  const base = opts.ledgerBase.trim().toUpperCase()
+  const eff = (opts.currency || base).trim().toUpperCase()
+  if (opts.originalCurrency !== undefined) {
+    const orig = (opts.originalCurrency || base).trim().toUpperCase()
+    if (eff === orig) return null // 币种未变:金额联动交给 server L14,防漂移
+  }
+  if (eff === base) {
+    // 本位币(含「改回本位币」):隐含汇率 1
+    return { currency_code: base, native_amount: opts.amount }
+  }
+  const entry = await _effectiveRates(opts.token, base)
+  const manual = entry.overrides.get(eff)
+  if (manual !== undefined) {
+    return { currency_code: eff, native_amount: opts.amount * manual }
+  }
+  const raw = entry.auto[eff] ?? entry.auto[eff.toLowerCase()]
+  const rate = Number(raw)
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error('rate missing')
+  // fawaz 方向 1 base = rate quote → quote 金额折 base 要除
+  return { currency_code: eff, native_amount: opts.amount / rate }
+}
+
+/** 列表/详情的「外币交易」判定:折算快照存在且 ≠ 原币值。 */
+export function isForeignTx(row: {
+  currency_code?: string | null
+  native_amount?: number | null
+  amount: number
+}): boolean {
+  return Boolean(
+    row.currency_code && row.native_amount != null && row.native_amount !== row.amount
+  )
+}

@@ -858,13 +858,19 @@ def list_workspace_tags(
         for e in all_tags
         if e.name and e.id
     }
+    # 账本维度口径:折本位币(native ?? amount)+ 排除「不计收支」标记笔,
+    # 与 analytics / _projection_totals / App getTagStats 一致(审查发现:
+    # 此前此处两个口径都缺,多币种/标记场景下标签合计与分析页对不上)。
     tx_rows = db.execute(
         select(
             ReadTxProjection.tx_type,
-            ReadTxProjection.amount,
+            func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount),
             ReadTxProjection.tag_sync_ids_json,
             ReadTxProjection.tags_csv,
-        ).where(ReadTxProjection.ledger_id.in_(ledger_internal_ids))
+        ).where(
+            ReadTxProjection.ledger_id.in_(ledger_internal_ids),
+            ReadTxProjection.exclude_from_stats == sa_false(),
+        )
     ).all()
     for tx_type_val, amount, tag_ids_json, tags_csv in tx_rows:
         matched_ids: set[str] = set()

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  fetchExchangeRates,
   createCategory,
   createTransaction,
   fetchWorkspaceAccounts,
@@ -16,6 +15,7 @@ import {
 } from '@beecount/api-client'
 import { useT, useToast } from '@beecount/ui'
 import {
+  resolveCurrencyFields,
   CategoriesPanel,
   categoryDefaults,
   TransactionsPanel,
@@ -121,9 +121,10 @@ export function GlobalEditDialogs() {
         tx_type: tx.tx_type,
         amount: String(tx.amount),
         happened_at: tx.happened_at,
-        // v30 多币种:回显该笔币种(此弹窗不改币种;金额变更的折算联动由
-        // server mutator L14 兜底)
+        // v30 多币种:回显该笔币种 + 原币种(提交时币种未变不发字段,金额
+        // 变更折算由 server L14 隐含汇率联动,防快照漂移)
         currency: (tx.currency_code || '').toUpperCase(),
+        original_currency: (tx.currency_code || '').toUpperCase(),
         note: tx.note || '',
         category_name: tx.category_name || '',
         category_kind: (tx.category_kind as TxForm['category_kind']) || 'expense',
@@ -212,8 +213,8 @@ export function GlobalEditDialogs() {
       }
     }
 
-    // v30 多币种:所选币种 ≠ 账本主币种 → 按 server 汇率折本位币快照;
-    // 拉不到汇率阻断保存(与 TransactionsPage 提交逻辑一致,绝不静默 1:1)。
+    // v30 多币种:共享 helper(override 口径/编辑防漂移/改回本位币),与
+    // TransactionsPage 提交完全同一实现。
     const ledgerBase = (
       ledgers.find((l) => l.ledger_id === ledgerId)?.currency || 'CNY'
     )
@@ -228,17 +229,18 @@ export function GlobalEditDialogs() {
       ledgerBase
     ).toUpperCase()
     let currencyFields: { currency_code?: string; native_amount?: number } = {}
-    if (editTxForm.tx_type !== 'transfer' && effCurrency !== ledgerBase) {
+    if (editTxForm.tx_type !== 'transfer') {
       try {
-        const ratesRes = await fetchExchangeRates(token, ledgerBase)
-        const raw =
-          ratesRes.rates[effCurrency] ?? ratesRes.rates[effCurrency.toLowerCase()]
-        const rate = Number(raw)
-        if (!Number.isFinite(rate) || rate <= 0) throw new Error('rate missing')
-        currencyFields = {
-          currency_code: effCurrency,
-          native_amount: amountNum / rate
-        }
+        const resolved = await resolveCurrencyFields({
+          token,
+          ledgerBase,
+          currency: effCurrency,
+          amount: amountNum,
+          originalCurrency: editTxForm.editingId
+            ? editTxForm.original_currency
+            : undefined
+        })
+        if (resolved) currencyFields = resolved
       } catch {
         notifyError(new Error(t('transactions.error.rateMissing')))
         return false
@@ -402,7 +404,17 @@ export function GlobalEditDialogs() {
       total={0}
       page={1}
       pageSize={20}
-      accounts={editTxAccounts}
+      accounts={editTxAccounts.filter((a) => {
+        // 币种优先联动:账户下拉只显示「表单所选币种(默认=账本主币种)」的
+        // 账户,防止选出币种与账户不一致的组合(与 TransactionsPage 同规则)
+        const base = (
+          ledgers.find((l) => l.ledger_id === editTxLedgerId)?.currency || 'CNY'
+        )
+          .trim()
+          .toUpperCase()
+        const wanted = (editTxForm.currency || base).toUpperCase()
+        return ((a.currency || 'CNY').trim().toUpperCase()) === wanted
+      })}
       categories={editTxCategories}
       tags={editTxTags}
       ledgerOptions={ledgerOptions}

@@ -335,6 +335,25 @@ def create_transaction(snapshot: dict, payload: dict) -> tuple[dict, str]:
     return target, tx_id
 
 
+def rescale_native_amount(
+    old_amount: float, old_native: float, new_amount: float
+) -> float:
+    """L14 唯一权威实现:amount 变化时 nativeAmount 的联动规则。
+
+    - 同币种/未折算(old_native == old_amount,隐含汇率 1)→ 跟随新 amount
+    - 外币 → 按该笔隐含汇率等比缩放(old_native / old_amount * new_amount),
+      保持记账时汇率不漂移
+    - old_amount == 0 无法推汇率 → 退化 = 新 amount(1:1,App L11 可捞回)
+
+    调用方:本文件 update_transaction(Web 写路径)与 sync_applier.
+    _sync_native_amount_after_merge(旧 App push 路径)。App 端 sync apply 的
+    「缺键退化 1:1」是有意的另一规则(旧客户端场景宁可退化让 L11 捞),不共用。
+    """
+    if old_amount == 0.0 or old_native == old_amount:
+        return new_amount
+    return old_native / old_amount * new_amount
+
+
 def update_transaction(snapshot: dict, tx_id: str, payload: dict) -> dict:
     target = ensure_snapshot_v2(snapshot)
     items = _ensure_list(target, "items")
@@ -361,10 +380,8 @@ def update_transaction(snapshot: dict, tx_id: str, payload: dict) -> dict:
             old_amount = _to_float(item.get("amount"))
             old_native = _to_float(item.get("nativeAmount"))
             if new_amount != old_amount:
-                if old_amount == 0.0 or old_native == old_amount:
-                    item["nativeAmount"] = new_amount
-                else:
-                    item["nativeAmount"] = old_native / old_amount * new_amount
+                item["nativeAmount"] = rescale_native_amount(
+                    old_amount, old_native, new_amount)
         item["amount"] = new_amount
     if payload.get("native_amount") is not None:
         # 显式传入优先(Web 折算录入);None = 不变。

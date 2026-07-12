@@ -327,11 +327,14 @@ export function TransactionsPanel({
 
   const applyTxType = (nextType: TxForm['tx_type']) => {
     if (nextType === 'transfer') {
-      // 转账两个标记都隐藏 → 清掉,避免残留脏值
+      // 转账两个标记都隐藏 → 清掉,避免残留脏值。
+      // currency 一并清空:转账不支持跨币种且币种控件隐藏,不清会把转出/
+      // 转入账户下拉锁死在之前手选的外币过滤里(审查发现)。
       onFormChange({
         ...form,
         tx_type: nextType,
         account_name: '',
+        currency: '',
         category_name: '',
         category_kind: 'transfer',
         exclude_from_stats: false,

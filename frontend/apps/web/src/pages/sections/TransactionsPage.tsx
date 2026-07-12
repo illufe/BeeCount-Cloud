@@ -47,7 +47,6 @@ import {
 } from '@beecount/ui'
 
 import {
-  fetchExchangeRates,
   ApiError,
   batchAttachmentExists,
   batchDeleteTransactions,
@@ -82,6 +81,7 @@ import {
 } from '@beecount/api-client'
 
 import {
+  resolveCurrencyFields,
   CategoryPickerDialog,
   ConfirmDialog,
   TagPickerDialog,
@@ -1416,23 +1416,22 @@ export function TransactionsPage() {
         .map((value) => tagByName.get(value.trim().toLowerCase()))
         .filter((value): value is string => Boolean(value))
 
-      // v30 多币种:所选币种 ≠ 账本本位币 → 按 server 有效汇率折本位币快照。
-      // 拉不到汇率就阻断保存(绝不静默 1:1,与 App 端 L8 一致)。transfer 不带。
+      // v30 多币种:共享 helper(手动 override > 自动源;编辑模式币种未变
+      // 返回 null 不发字段 —— 金额变化由 server L14 按隐含汇率联动,避免
+      // 「只改备注被今日汇率重算」的快照漂移;改回本位币显式发 base+amount)。
+      // 拉不到汇率阻断保存(绝不静默 1:1,与 App L8 一致)。transfer 不带。
       let currencyFields: { currency_code?: string; native_amount?: number } = {}
       const submitAmount = Number(txForm.amount || 0)
-      if (!isTransfer && txFormCurrency !== txWriteLedgerCurrency) {
+      if (!isTransfer) {
         try {
-          const ratesRes = await fetchExchangeRates(token, txWriteLedgerCurrency)
-          const raw =
-            ratesRes.rates[txFormCurrency] ??
-            ratesRes.rates[txFormCurrency.toLowerCase()]
-          const rate = Number(raw)
-          if (!Number.isFinite(rate) || rate <= 0) throw new Error('rate missing')
-          // fawaz 方向:1 本位币 = rate 外币 → 外币金额折本位币 = amount / rate
-          currencyFields = {
-            currency_code: txFormCurrency,
-            native_amount: submitAmount / rate
-          }
+          const resolved = await resolveCurrencyFields({
+            token,
+            ledgerBase: txWriteLedgerCurrency,
+            currency: txFormCurrency,
+            amount: submitAmount,
+            originalCurrency: txForm.editingId ? txForm.original_currency : undefined
+          })
+          if (resolved) currencyFields = resolved
         } catch {
           setErrorNotice(t('transactions.error.rateMissing'))
           return false
@@ -1969,6 +1968,9 @@ export function TransactionsPage() {
                     from_account_name: tx.from_account_name || '',
                     to_account_name: tx.to_account_name || '',
                     currency: (tx.currency_code || '').toUpperCase() === txWriteLedgerCurrency
+                      ? ''
+                      : (tx.currency_code || '').toUpperCase(),
+                    original_currency: (tx.currency_code || '').toUpperCase() === txWriteLedgerCurrency
                       ? ''
                       : (tx.currency_code || '').toUpperCase(),
                     tags:
