@@ -84,3 +84,21 @@ before overwriting** step required by WAL mode.
 - Recommended user-facing policy:
   - App keeps collaboration entry visible with beta warnings.
   - Shared member operations remain managed in Web/admin first.
+
+## 9) Deploying a fork or feature branch
+
+For a self-hosted build from a fork, check out the intended branch on the Mac
+Mini, then rebuild the image from source:
+
+```bash
+git fetch origin
+git switch codex/account-mcp
+docker compose up -d --build
+curl -fsS http://127.0.0.1:8869/ready
+```
+
+The account MCP change uses the existing PAT `scopes_json` field, so it does
+not require a database migration. After deployment, verify that `tools/list`
+contains `create_account`, `update_account`, and `delete_account`, then create
+an `mcp:account_write` PAT in Web settings. Do not use a PAT against ordinary
+REST routes.
