@@ -16,11 +16,11 @@ SCOPE_APP_WRITE = "app_write"
 SCOPE_WEB_READ = "web_read"
 SCOPE_WEB_WRITE = "web_write"
 SCOPE_OPS_WRITE = "ops_write"
-# MCP 专用 scope。PAT 创建时用户选这两个之一或两个都选。MCP server 的
-# read tools 要求 `mcp:read`,write tools 要求 `mcp:write`。详见 .docs/mcp-
-# server-design.md。
+# MCP 专用 scope。PAT 创建时按需选择读、交易写或账户写权限；账户写与交易
+# 写严格分开。详见 .docs/mcp-server-design.md。
 SCOPE_MCP_READ = "mcp:read"
 SCOPE_MCP_WRITE = "mcp:write"
+SCOPE_MCP_ACCOUNT_WRITE = "mcp:account_write"
 
 # PAT token 明文前缀,识别"这是 BeeCount MCP token"。跟 GitHub PAT `ghp_` /
 # OpenAI `sk-` 同惯例,方便用户和 secret scanner 识别。

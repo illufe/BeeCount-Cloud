@@ -46,9 +46,12 @@ type ExpirationOption = '30' | '90' | '180' | '365' | 'never'
 
 const EXPIRATION_OPTIONS: ExpirationOption[] = ['30', '90', '180', '365', 'never']
 
-const SCOPE_OPTIONS: Array<{ value: 'read' | 'write'; scopes: PatScope[] }> = [
+type ScopeOption = 'read' | 'write' | 'account'
+
+const SCOPE_OPTIONS: Array<{ value: ScopeOption; scopes: PatScope[] }> = [
   { value: 'read', scopes: ['mcp:read'] },
   { value: 'write', scopes: ['mcp:read', 'mcp:write'] },
+  { value: 'account', scopes: ['mcp:account_write'] },
 ]
 
 /**
@@ -69,13 +72,13 @@ export function SettingsPatsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newScope, setNewScope] = useState<'read' | 'write'>('read')
+  const [newScope, setNewScope] = useState<ScopeOption>('read')
   const [newExpiration, setNewExpiration] = useState<ExpirationOption>('90')
   const [createdToken, setCreatedToken] = useState<PatCreateResponse | null>(null)
   const [copied, setCopied] = useState(false)
   const [editing, setEditing] = useState<PatListItem | null>(null)
   const [editName, setEditName] = useState('')
-  const [editScope, setEditScope] = useState<'read' | 'write'>('read')
+  const [editScope, setEditScope] = useState<ScopeOption>('read')
   const [savingEdit, setSavingEdit] = useState(false)
   const [pendingRevoke, setPendingRevoke] = useState<PatListItem | null>(null)
   const [revoking, setRevoking] = useState(false)
@@ -143,7 +146,13 @@ export function SettingsPatsPage() {
   const openEdit = useCallback((row: PatListItem) => {
     setEditing(row)
     setEditName(row.name)
-    setEditScope(row.scopes.includes('mcp:write') ? 'write' : 'read')
+    setEditScope(
+      row.scopes.includes('mcp:account_write')
+        ? 'account'
+        : row.scopes.includes('mcp:write')
+          ? 'write'
+          : 'read',
+    )
   }, [])
 
   const handleSaveEdit = useCallback(async () => {
@@ -255,19 +264,22 @@ export function SettingsPatsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>{t('settings.pats.create.fields.scope')}</Label>
-              <Select value={newScope} onValueChange={(v) => setNewScope(v as 'read' | 'write')}>
+              <Select value={newScope} onValueChange={(v) => setNewScope(v as ScopeOption)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="read">{t('settings.pats.scope.readOnly')}</SelectItem>
                   <SelectItem value="write">{t('settings.pats.scope.readWrite')}</SelectItem>
+                  <SelectItem value="account">{t('settings.pats.scope.account')}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {newScope === 'read'
                   ? t('settings.pats.create.fields.scopeHintRead')
-                  : t('settings.pats.create.fields.scopeHintWrite')}
+                  : newScope === 'write'
+                    ? t('settings.pats.create.fields.scopeHintWrite')
+                    : t('settings.pats.create.fields.scopeHintAccount')}
               </p>
             </div>
             <div className="space-y-1.5">
@@ -347,19 +359,22 @@ export function SettingsPatsPage() {
             </div>
             <div className="space-y-1.5">
               <Label>{t('settings.pats.create.fields.scope')}</Label>
-              <Select value={editScope} onValueChange={(v) => setEditScope(v as 'read' | 'write')}>
+              <Select value={editScope} onValueChange={(v) => setEditScope(v as ScopeOption)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="read">{t('settings.pats.scope.readOnly')}</SelectItem>
                   <SelectItem value="write">{t('settings.pats.scope.readWrite')}</SelectItem>
+                  <SelectItem value="account">{t('settings.pats.scope.account')}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 {editScope === 'read'
                   ? t('settings.pats.create.fields.scopeHintRead')
-                  : t('settings.pats.create.fields.scopeHintWrite')}
+                  : editScope === 'write'
+                    ? t('settings.pats.create.fields.scopeHintWrite')
+                    : t('settings.pats.create.fields.scopeHintAccount')}
               </p>
             </div>
             <p className="rounded-md border border-muted bg-muted/30 p-2 text-xs text-muted-foreground">
@@ -412,9 +427,11 @@ function PatRow({ row, onRevoke, onEdit }: PatRowProps) {
         ? 'warning'
         : 'muted'
   const statusLabel = t(`settings.pats.status.${status}`)
-  const scopeLabel = row.scopes.includes('mcp:write')
-    ? t('settings.pats.scope.readWriteShort')
-    : t('settings.pats.scope.readOnlyShort')
+  const scopeLabel = row.scopes.includes('mcp:account_write')
+    ? t('settings.pats.scope.accountShort')
+    : row.scopes.includes('mcp:write')
+      ? t('settings.pats.scope.readWriteShort')
+      : t('settings.pats.scope.readOnlyShort')
 
   return (
     <li className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">

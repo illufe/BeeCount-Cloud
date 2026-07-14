@@ -134,6 +134,21 @@ def test_create_pat_rejects_invalid_scope(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_create_pat_accepts_account_write_scope(monkeypatch) -> None:
+    client = _make_client(monkeypatch)
+    try:
+        user = _register(client)
+        res = client.post(
+            "/api/v1/profile/pats",
+            headers={"Authorization": f"Bearer {user['access_token']}"},
+            json={"name": "Accounts", "scopes": ["mcp:account_write"]},
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["scopes"] == ["mcp:account_write"]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_delete_pat_one_shot_hard_delete(monkeypatch) -> None:
     """DELETE 一发即物理移除,token 立刻失效,行从列表消失。"""
     client = _make_client(monkeypatch)
