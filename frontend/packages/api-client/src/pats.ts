@@ -9,7 +9,7 @@
  */
 import { authedDelete, authedGet, authedPatch, authedPost } from './http'
 
-export type PatScope = 'mcp:read' | 'mcp:write'
+export type PatScope = 'mcp:read' | 'mcp:write' | 'mcp:account_write'
 
 export interface PatListItem {
   id: string

@@ -6,10 +6,11 @@ Let LLM clients (Claude Desktop / Cursor / Cline / etc.) read and write your Bee
 
 ## What it is
 
-MCP is Anthropic's open standard for LLM tool integration. BeeCount Cloud ships a built-in MCP server exposing 17 tools:
+MCP is Anthropic's open standard for LLM tool integration. BeeCount Cloud ships a built-in MCP server exposing 21 tools:
 
 - **11 read tools** — `list_ledgers` / `list_transactions` / `list_categories` / `list_accounts` / `list_tags` / `list_budgets` / `get_ledger_stats` / `get_analytics_summary` / `search` / `get_transaction` / `get_active_ledger`
-- **6 write tools** — `create_transaction` / `update_transaction` / `delete_transaction` (two-step confirm) / `create_category` / `update_budget` / `parse_and_create_from_text` (let BeeCount's own AI parse free-form text)
+- **7 write tools** — `create_transaction` / `create_transactions` / `update_transaction` / `delete_transaction` (two-step confirm) / `create_category` / `update_budget` / `parse_and_create_from_text` (let BeeCount's own AI parse free-form text)
+- **3 account tools** — `create_account` / `update_account` / `delete_account` (two-step confirm)
 
 Inside your favourite LLM client you can just say:
 
@@ -34,6 +35,7 @@ The LLM picks the right tool, no need to open BeeCount. Transactions created via
    - **Scope**:
      - `mcp:read` — LLM can read only. **Start here.**
      - `mcp:read + mcp:write` — LLM can create/edit/delete transactions. **Grant carefully.**
+     - `mcp:account_write` — LLM can maintain accounts, but cannot write transactions.
    - **Expiration**: 30 / 90 / 180 / 365 days or never (default 90)
 4. **Copy the token immediately!** The plaintext `bcmcp_…` is shown once — after you close the dialog only the prefix is recoverable.
 
@@ -163,8 +165,9 @@ PAT and access tokens are strictly partitioned: **PATs only work against `/api/v
 | Token storage | Server stores `sha256` hash only, constant-time compare; plaintext returned exactly once at creation |
 | Token deletion | One-shot physical delete — the row leaves the DB and the token becomes invalid immediately |
 | Token expiration | Optional at creation; expired tokens get 401 |
-| Scope separation | `mcp:read` / `mcp:write` are independently selected; read-only tokens cannot be escalated |
+| Scope separation | `mcp:read` / `mcp:write` / `mcp:account_write` are independently selected; account-only tokens cannot write transactions |
 | Destructive ops | `delete_transaction` requires `confirm=true`; the first call returns a "needs confirmation" placeholder and the LLM must ask the user first |
+| Account deletion | `delete_account` requires explicit `ledger_id`, `account_id`, and `confirm=true`; linked accounts are rejected by the server |
 | Boundary | PATs cannot call regular `/api/v1/*` endpoints — only MCP tools |
 | Audit | Every PAT use bumps `last_used_at` + `last_used_ip`, visible in the web settings page |
 
@@ -195,11 +198,22 @@ PAT and access tokens are strictly partitioned: **PATs only work against `/api/v
 | Tool | Purpose | Key args |
 |---|---|---|
 | `create_transaction` | New transaction | amount, tx_type, category, account, happened_at, note, tags |
+| `create_transactions` | **Bulk** new transactions | transactions, ledger_id |
 | `update_transaction` | Edit a transaction | sync_id + fields to change |
 | `delete_transaction` | Delete (**two-step confirm**) | sync_id, confirm |
 | `create_category` | New category | name, kind, parent_name |
 | `update_budget` | Change budget amount | budget_id, amount |
 | `parse_and_create_from_text` | Natural language → transaction | text |
+
+### Account (`mcp:account_write`)
+
+| Tool | Purpose | Key args |
+|---|---|---|
+| `create_account` | Create an account | ledger_id, name, account_type, currency, initial_balance |
+| `update_account` | Edit an account | ledger_id, account_id + at least one field |
+| `delete_account` | Delete an unlinked account (**two-step confirm**) | ledger_id, account_id, confirm |
+
+Account tools always require an explicit `ledger_id`; update and delete locate accounts by `account_id`, never by guessed name.
 
 ---
 
@@ -222,6 +236,10 @@ PAT and access tokens are strictly partitioned: **PATs only work against `/api/v
 
 - The token doesn't have write scope. Open the web settings page, edit the token, check "Read + write" — no need to recreate.
 - After the edit you must **reconnect the LLM client** for the new scope to take effect — clients cache the scope / tool list from the first connection.
+
+**Q: LLM tool call returns "PAT missing required scope: mcp:account_write"**
+
+- Create or edit the PAT and select the dedicated `mcp:account_write` scope. It does not grant transaction write access.
 
 **Q: `delete_transaction` keeps returning "confirmation_required"**
 

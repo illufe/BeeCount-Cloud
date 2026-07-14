@@ -122,7 +122,7 @@ class PersonalAccessToken(Base):
     - access token:60 分钟过期,refresh 流复杂,LLM 客户端做不到
     - refresh token:绑 device,跨 LLM 客户端不通用
     - **PAT**:用户主动创建 → 自定义过期(默认 90 天 / 永久)→ 可独立撤销
-      → 单独 scope(`mcp:read` / `mcp:write`),不污染 web/app 路径
+      → 单独 scope(`mcp:read` / `mcp:write` / `mcp:account_write`),不污染 web/app 路径
 
     Token 明文格式 `bcmcp_<32 字节 base64url>`,只在创建时返回一次,之后表
     里只存 sha256。`prefix` 前 16 字符明文供列表展示用。详见
@@ -138,7 +138,7 @@ class PersonalAccessToken(Base):
     token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     # 前 16 字符明文(如 `bcmcp_a1b2c3d4`)给列表展示用,识别哪个是哪个
     prefix: Mapped[str] = mapped_column(String(32), index=True)
-    # JSON 数组:["mcp:read"] / ["mcp:write"] / 两者
+    # JSON 数组:["mcp:read"] / ["mcp:write"] / ["mcp:account_write"] / 组合
     scopes_json: Mapped[str] = mapped_column(Text, default="[]")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

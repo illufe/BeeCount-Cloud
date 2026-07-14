@@ -174,7 +174,7 @@ def get_mcp_scopes_from_context(ctx: Any) -> set[str]:
 
 
 def require_mcp_scope(ctx: Any, required: str) -> None:
-    """tool 函数内部 scope 检查。读 tools 要 mcp:read,写 tools 要 mcp:write。"""
+    """tool 函数内部 scope 检查。读、交易写、账户写分别按专用 scope 校验。"""
     scopes = get_mcp_scopes_from_context(ctx)
     if required not in scopes:
         raise PermissionError(f"PAT missing required scope: {required}")

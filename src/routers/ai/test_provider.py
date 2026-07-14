@@ -205,6 +205,10 @@ async def test_provider(
         )
 
 
+# This is an API endpoint, not a pytest test; its name is part of the route code.
+test_provider.__test__ = False
+
+
 # ──────────────── 内部 helpers ────────────────
 
 

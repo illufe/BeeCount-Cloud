@@ -1,4 +1,4 @@
-"""MCP write tools — 6 个,LLM 用来修改用户数据。
+"""MCP write tools — 7 个,LLM 用来修改用户数据。
 
 **实现策略**:write tools 通过 **HTTP self-call** 调现有的 `/api/v1/write/*`
 router endpoint,而不是直接动 DB。原因:
@@ -33,7 +33,7 @@ from ...models import (
     UserTagProjection,
     User,
 )
-from ...security import SCOPE_APP_WRITE, _create_token
+from ...security import SCOPE_APP_WRITE, SCOPE_WEB_WRITE, _create_token
 from .read_tools import _parse_dt, _resolve_ledger, live_ledgers
 
 logger = logging.getLogger(__name__)
@@ -53,17 +53,24 @@ _MCP_DEFAULT_TAG = "MCP"
 _MCP_DEFAULT_TAG_COLOR = "#00BCD4"
 
 
-def _internal_token(user: User) -> str:
+def _internal_token(user: User, scopes: list[str] | None = None) -> str:
     return _create_token(
         sub=user.id,
         token_type="access",
         expires_delta=timedelta(seconds=_SELF_TOKEN_TTL_SEC),
-        scopes=[SCOPE_APP_WRITE],
+        scopes=scopes or [SCOPE_APP_WRITE],
         client_type="app",
     )
 
 
-async def _self_call(method: str, path: str, user: User, **kwargs: Any) -> dict[str, Any]:
+async def _self_call(
+    method: str,
+    path: str,
+    user: User,
+    *,
+    internal_scopes: list[str] | None = None,
+    **kwargs: Any,
+) -> dict[str, Any]:
     """异步 HTTP self-call 到本进程的 router endpoint。
 
     用 ASGI in-process transport 避免真起 socket — 仍然走完整 FastAPI
@@ -72,7 +79,7 @@ async def _self_call(method: str, path: str, user: User, **kwargs: Any) -> dict[
     from ..._mcp_internal_client import get_internal_client  # late import 防循环
 
     headers = kwargs.pop("headers", {}) or {}
-    headers["Authorization"] = f"Bearer {_internal_token(user)}"
+    headers["Authorization"] = f"Bearer {_internal_token(user, internal_scopes)}"
     headers.setdefault("X-Device-ID", "mcp-internal")
 
     client = get_internal_client()

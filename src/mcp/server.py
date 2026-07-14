@@ -1,9 +1,9 @@
-"""BeeCount Cloud MCP server — 注册所有 18 个 tool,导出 ASGI app。
+"""BeeCount Cloud MCP server — 注册所有 21 个 tool,导出 ASGI app。
 
 设计:.docs/mcp-server-design.md。
 
 挂载入口:`src.main` 里 `app.mount(f"{api_prefix}/mcp", mcp_server.app)`。
-完整对外 URL:`/api/v1/mcp/sse`(SSE channel)+ `/api/v1/mcp/messages/` (POST 消息回信道)。
+完整对外 URL 是单端点 `/api/v1/mcp`(Streamable HTTP POST)。
 
 鉴权:`PATAuthMiddleware` 在 ASGI 层校验 `Authorization: Bearer bcmcp_…`,
 注入 `scope['bc_mcp_user']` 和 `scope['bc_mcp_scopes']`,tool 函数从
@@ -14,6 +14,8 @@ Tool 注册分两类:
     sync 函数用 `asyncio.to_thread` 包一下避免阻塞 event loop。
   - write:`require_mcp_scope(ctx, mcp:write)` 后调 `write_tools.py` 同名
     async 函数(内部用 in-process httpx 调 write router endpoint)。
+  - account:`require_mcp_scope(ctx, mcp:account_write)` 后调
+    `account_tools.py` 同名 async 函数;账户写权限不包含交易写权限。
 """
 from __future__ import annotations
 
@@ -29,14 +31,14 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from ..database import SessionLocal
 from ..models import MCPCallLog, User
-from ..security import SCOPE_MCP_READ, SCOPE_MCP_WRITE
+from ..security import SCOPE_MCP_ACCOUNT_WRITE, SCOPE_MCP_READ, SCOPE_MCP_WRITE
 from .auth import (
     PATAuthMiddleware,
     get_mcp_call_meta_from_context,
     get_mcp_user_from_context,
     require_mcp_scope,
 )
-from .tools import read_tools, write_tools
+from .tools import account_tools, read_tools, write_tools
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +484,84 @@ async def parse_and_create_from_text(
     return await _logged_call(
         ctx, name="parse_and_create_from_text", scope=SCOPE_MCP_WRITE, kwargs=kw,
         body=lambda user: write_tools.parse_and_create_from_text(user, **kw),
+    )
+
+
+# ============================================================================
+# Account tools — 3 个,mcp:account_write scope
+# ============================================================================
+
+
+@mcp.tool()
+async def create_account(
+    ctx: Context,
+    ledger_id: str,
+    name: str,
+    account_type: str | None = None,
+    currency: str | None = None,
+    initial_balance: float = 0.0,
+    base_change_id: int = 0,
+) -> dict[str, Any]:
+    """Create an account; ledger_id is always required."""
+    kw = {
+        "ledger_id": ledger_id,
+        "name": name,
+        "account_type": account_type,
+        "currency": currency,
+        "initial_balance": initial_balance,
+        "base_change_id": base_change_id,
+    }
+    return await _logged_call(
+        ctx, name="create_account", scope=SCOPE_MCP_ACCOUNT_WRITE, kwargs=kw,
+        body=lambda user: account_tools.create_account(user, **kw),
+    )
+
+
+@mcp.tool()
+async def update_account(
+    ctx: Context,
+    ledger_id: str,
+    account_id: str,
+    name: str | None = None,
+    account_type: str | None = None,
+    currency: str | None = None,
+    initial_balance: float | None = None,
+    base_change_id: int = 0,
+) -> dict[str, Any]:
+    """Update an account by account_id; ledger_id is always required."""
+    kw = {
+        "ledger_id": ledger_id,
+        "account_id": account_id,
+        "name": name,
+        "account_type": account_type,
+        "currency": currency,
+        "initial_balance": initial_balance,
+        "base_change_id": base_change_id,
+    }
+    return await _logged_call(
+        ctx, name="update_account", scope=SCOPE_MCP_ACCOUNT_WRITE, kwargs=kw,
+        body=lambda user: account_tools.update_account(user, **kw),
+    )
+
+
+@mcp.tool()
+async def delete_account(
+    ctx: Context,
+    ledger_id: str,
+    account_id: str,
+    confirm: bool = False,
+    base_change_id: int = 0,
+) -> dict[str, Any]:
+    """Delete an account only after confirm=true and only if it has no transactions."""
+    kw = {
+        "ledger_id": ledger_id,
+        "account_id": account_id,
+        "confirm": confirm,
+        "base_change_id": base_change_id,
+    }
+    return await _logged_call(
+        ctx, name="delete_account", scope=SCOPE_MCP_ACCOUNT_WRITE, kwargs=kw,
+        body=lambda user: account_tools.delete_account(user, **kw),
     )
 
 
