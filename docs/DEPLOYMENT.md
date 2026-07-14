@@ -87,12 +87,12 @@ before overwriting** step required by WAL mode.
 
 ## 9) Deploying a fork or feature branch
 
-For a self-hosted build from a fork, check out the intended branch on the Mac
-Mini, then rebuild the image from source:
+For a self-hosted build from a fork, check out the fork's reviewed `main`
+branch on the Mac Mini, then rebuild the image from source:
 
 ```bash
 git fetch origin
-git switch codex/account-mcp
+git switch main
 docker compose up -d --build
 curl -fsS http://127.0.0.1:8869/ready
 ```
