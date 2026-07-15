@@ -448,7 +448,7 @@ async def create_transactions(
     每个 item 字段(跟 create_transaction 一致):
       amount(必填 >0)、tx_type(expense|income|transfer,默认 expense)、
       category、account/account_id、from_account_id、to_account_id、
-      happened_at(ISO,缺省=now)、note、tags(list)。
+      happened_at(ISO,必填)、note、tags(list)。
     """
     if not transactions:
         raise ValueError("transactions must be a non-empty list")
@@ -487,7 +487,9 @@ async def create_transactions(
         if not isinstance(amount, (int, float)) or isinstance(amount, bool) or amount <= 0:
             raise ValueError(f"transactions[{i}]: amount must be a positive number")
         happened_at = raw.get("happened_at")
-        happened = _parse_dt(happened_at) if happened_at else datetime.now(timezone.utc)
+        if not happened_at:
+            raise ValueError(f"transactions[{i}]: happened_at is required for idempotent batches")
+        happened = _parse_dt(happened_at)
         item: dict[str, Any] = {
             "tx_type": tx_type,
             "amount": float(amount),
@@ -537,62 +539,44 @@ async def create_transactions(
         # v30 多币种:暂存本笔的显式币种 + 账户标识,第 3.5 步统一折算
         item["__ccy_arg"] = (str(raw["currency"]).strip().upper()
                              if raw.get("currency") else None)
-        item["__acc_name"] = str(account) if account else None
-        item["__acc_id"] = str(account_id) if account_id else None
         norm_items.append(item)
 
     # 3. 预校验 category / account 名是否存在(O(1) 查询,给 LLM 清晰报错,
     #    跟单笔 create_transaction 的 _lookup_* 校验同口径)
     with SessionLocal() as db:
-        _validate_names_exist(db, user.id, categories=cat_needed, accounts=acc_needed)
-        _validate_account_ids_exist(db, user.id, account_ids=acc_id_needed)
+        _validate_names_exist(db, user.id, categories=cat_needed, accounts=set())
+        account_by_id, account_by_name = _load_account_details(
+            db, user.id, account_ids=acc_id_needed, account_names=acc_needed
+        )
+        for i, item in enumerate(norm_items):
+            if item["tx_type"] == "transfer":
+                source = _resolve_account_ref(
+                    item, "from_account_id", "from_account_name", i, account_by_id, account_by_name
+                )
+                target = _resolve_account_ref(
+                    item, "to_account_id", "to_account_name", i, account_by_id, account_by_name
+                )
+                if source["currency"] != target["currency"]:
+                    raise ValueError(
+                        f"transactions[{i}]: cross-currency transfers are unsupported"
+                    )
+            else:
+                item["__account_currency"] = _resolve_account_ref(
+                    item, "account_id", "account_name", i, account_by_id, account_by_name
+                )["currency"]
         mcp_tag_missing = _is_tag_missing_in_ledger(
             db, user_id=user.id, ledger_id=led_internal_id, tag_name=_MCP_DEFAULT_TAG,
         )
 
-    # 3.5 v30 多币种折算:预取涉及账户的币种 map,逐笔定币种 + 折 native。
-    #     account_currency 走 map(不逐笔查库);_build_currency_fields 内部
-    #     只在外币时才拉汇率(fetcher 有 server 端缓存,同 base 复用)。
-    if acc_needed:
-        with SessionLocal() as db:
-            acc_ccy_map = {
-                name: (
-                    db.scalar(
-                        select(UserAccountProjection.currency).where(
-                            UserAccountProjection.user_id == user.id,
-                            UserAccountProjection.name == name,
-                        ).limit(1)
-                    ) or ""
-                ).strip().upper() or None
-                for name in acc_needed
-            }
-    else:
-        acc_ccy_map = {}
-    if acc_id_needed:
-        with SessionLocal() as db:
-            acc_ccy_id_map = {
-                sync_id: (
-                    db.scalar(
-                        select(UserAccountProjection.currency).where(
-                            UserAccountProjection.user_id == user.id,
-                            UserAccountProjection.sync_id == sync_id,
-                        ).limit(1)
-                    ) or ""
-                ).strip().upper() or None
-                for sync_id in acc_id_needed
-            }
-    else:
-        acc_ccy_id_map = {}
+    # 3.5 v30 多币种折算:逐笔定币种 + 折 native。
     for item in norm_items:
         ccy_arg = item.pop("__ccy_arg", None)
-        acc_name = item.pop("__acc_name", None)
-        acc_id = item.pop("__acc_id", None)
         if item["tx_type"] == "transfer":
             continue  # 转账不折算(同币种守卫)
         fields = await _build_currency_fields(
             user,
             ledger_base=batch_ledger_base,
-            account_currency=acc_ccy_id_map.get(acc_id) or acc_ccy_map.get(acc_name),
+            account_currency=item.pop("__account_currency"),
             currency_arg=ccy_arg,
             amount=item["amount"],
         )
@@ -608,7 +592,7 @@ async def create_transactions(
     created_ids: list[str] = []
     for start in range(0, len(norm_items), _BATCH_CHUNK):
         chunk = norm_items[start : start + _BATCH_CHUNK]
-        chunk_key = f"{idempotency_key}:{start // _BATCH_CHUNK}"
+        chunk_key = f"{idempotency_key}:n{len(norm_items)}:p{start // _BATCH_CHUNK}"
         result = await _self_call(
             "POST",
             path,
@@ -821,21 +805,73 @@ def _validate_names_exist(
             )
 
 
-def _validate_account_ids_exist(db, user_id: str, *, account_ids: set[str]) -> None:
-    if not account_ids:
-        return
-    found = {
-        sync_id
-        for (sync_id,) in db.execute(
-            select(UserAccountProjection.sync_id).where(
-                UserAccountProjection.user_id == user_id,
-                UserAccountProjection.sync_id.in_(account_ids),
-            )
-        ).all()
-    }
-    missing = sorted(account_ids - found)
-    if missing:
-        raise ValueError(f"Unknown account IDs: {missing}")
+def _load_account_details(
+    db, user_id: str, *, account_ids: set[str], account_names: set[str]
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
+    rows = []
+    if account_ids:
+        rows.extend(
+            db.scalars(
+                select(UserAccountProjection).where(
+                    UserAccountProjection.user_id == user_id,
+                    UserAccountProjection.sync_id.in_(account_ids),
+                )
+            ).all()
+        )
+    if account_names:
+        rows.extend(
+            db.scalars(
+                select(UserAccountProjection).where(
+                    UserAccountProjection.user_id == user_id,
+                    UserAccountProjection.name.in_(account_names),
+                )
+            ).all()
+        )
+    by_id: dict[str, dict[str, str]] = {}
+    by_name: dict[str, dict[str, str]] = {}
+    for row in rows:
+        name = (row.name or "").strip()
+        detail = {
+            "id": row.sync_id,
+            "name": name,
+            "currency": (row.currency or "CNY").strip().upper() or "CNY",
+        }
+        by_id[row.sync_id] = detail
+        if name:
+            previous = by_name.get(name)
+            if previous and previous["id"] != row.sync_id:
+                raise ValueError(f"Ambiguous account name: {name!r}")
+            by_name[name] = detail
+    missing_ids = sorted(account_ids - by_id.keys())
+    missing_names = sorted(account_names - by_name.keys())
+    if missing_ids or missing_names:
+        raise ValueError(
+            f"Unknown accounts: ids={missing_ids}, names={missing_names}. "
+            "Use list_accounts to resolve account references."
+        )
+    return by_id, by_name
+
+
+def _resolve_account_ref(
+    item: dict[str, Any],
+    id_key: str,
+    name_key: str,
+    index: int,
+    by_id: dict[str, dict[str, str]],
+    by_name: dict[str, dict[str, str]],
+) -> dict[str, str]:
+    account_id = item.get(id_key)
+    account_name = item.get(name_key)
+    detail = by_id.get(account_id) if account_id else by_name.get(account_name)
+    if detail is None:
+        raise ValueError(f"transactions[{index}]: account reference is invalid")
+    if account_id and account_name and detail["name"] != account_name:
+        raise ValueError(
+            f"transactions[{index}]: {id_key} and {name_key} refer to different accounts"
+        )
+    item[id_key] = detail["id"]
+    item[name_key] = detail["name"]
+    return detail
 
 
 def _lookup_category_sync_id(db, user_id: str, name: str | None, tx_type: str | None) -> str | None:
