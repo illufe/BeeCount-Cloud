@@ -380,6 +380,7 @@ async def create_transactions(
     ctx: Context,
     transactions: list[dict[str, Any]],
     ledger_id: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """Create many transactions at once — use this for bulk imports.
 
@@ -395,8 +396,13 @@ async def create_transactions(
         ledger_id: Optional. If omitted and you have multiple ledgers, the tool
             refuses to guess and returns the candidate list — re-call with an id.
             Max 200 transactions per call; split larger imports across calls.
+        idempotency_key: Required stable key for safe retries of this batch.
     """
-    kw = dict(transactions=transactions, ledger_id=ledger_id)
+    kw = dict(
+        transactions=transactions,
+        ledger_id=ledger_id,
+        idempotency_key=idempotency_key,
+    )
     return await _logged_call(
         ctx, name="create_transactions", scope=SCOPE_MCP_WRITE, kwargs=kw,
         body=lambda user: write_tools.create_transactions(user, **kw),

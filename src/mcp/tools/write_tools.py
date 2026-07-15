@@ -437,6 +437,7 @@ async def create_transactions(
     *,
     transactions: list[dict[str, Any]],
     ledger_id: str | None = None,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """批量新建交易(Excel / 对账单导入等)。
 
@@ -446,10 +447,14 @@ async def create_transactions(
 
     每个 item 字段(跟 create_transaction 一致):
       amount(必填 >0)、tx_type(expense|income|transfer,默认 expense)、
-      category、account、happened_at(ISO,缺省=now)、note、tags(list)。
+      category、account/account_id、from_account_id、to_account_id、
+      happened_at(ISO,缺省=now)、note、tags(list)。
     """
     if not transactions:
         raise ValueError("transactions must be a non-empty list")
+    idempotency_key = str(idempotency_key or "").strip()
+    if not idempotency_key:
+        raise ValueError("idempotency_key is required for safe batch retries")
     if len(transactions) > _BULK_MAX_TOTAL:
         raise ValueError(
             f"Too many transactions in one call ({len(transactions)} > "
@@ -471,7 +476,10 @@ async def create_transactions(
     norm_items: list[dict[str, Any]] = []
     cat_needed: set[str] = set()
     acc_needed: set[str] = set()
+    acc_id_needed: set[str] = set()
     for i, raw in enumerate(transactions):
+        if not isinstance(raw, dict):
+            raise ValueError(f"transactions[{i}]: item must be an object")
         amount = raw.get("amount")
         tx_type = raw.get("tx_type") or "expense"
         if tx_type not in {"expense", "income", "transfer"}:
@@ -492,25 +500,52 @@ async def create_transactions(
             item["category_name"] = str(category)
             item["category_kind"] = tx_type
             cat_needed.add(str(category))
-        account = raw.get("account")
-        if account:
-            if tx_type == "transfer":
-                item["from_account_name"] = str(account)
-            else:
+        account = raw.get("account") or raw.get("account_name")
+        account_id = raw.get("account_id")
+        from_account = raw.get("from_account") or raw.get("from_account_name") or account
+        from_account_id = raw.get("from_account_id")
+        to_account = raw.get("to_account") or raw.get("to_account_name")
+        to_account_id = raw.get("to_account_id")
+        if tx_type == "transfer":
+            if not (from_account or from_account_id):
+                raise ValueError(f"transactions[{i}]: transfer source account is required")
+            if not (to_account or to_account_id):
+                raise ValueError(f"transactions[{i}]: transfer destination account is required")
+            if from_account:
+                item["from_account_name"] = str(from_account)
+                acc_needed.add(str(from_account))
+            if from_account_id:
+                item["from_account_id"] = str(from_account_id)
+                acc_id_needed.add(str(from_account_id))
+            if to_account:
+                item["to_account_name"] = str(to_account)
+                acc_needed.add(str(to_account))
+            if to_account_id:
+                item["to_account_id"] = str(to_account_id)
+                acc_id_needed.add(str(to_account_id))
+        else:
+            if not (account or account_id):
+                raise ValueError(f"transactions[{i}]: account is required")
+            if account:
                 item["account_name"] = str(account)
-            acc_needed.add(str(account))
+                acc_needed.add(str(account))
+            if account_id:
+                item["account_id"] = str(account_id)
+                acc_id_needed.add(str(account_id))
         # 用户 tags ∪ MCP 默认标签;batch 端点按名建实体 / 反查 sync_id。
         item["tags"] = _merge_default_tag(raw.get("tags"))
-        # v30 多币种:暂存本笔的显式币种 + 账户名,第 3.5 步统一折算
+        # v30 多币种:暂存本笔的显式币种 + 账户标识,第 3.5 步统一折算
         item["__ccy_arg"] = (str(raw["currency"]).strip().upper()
                              if raw.get("currency") else None)
         item["__acc_name"] = str(account) if account else None
+        item["__acc_id"] = str(account_id) if account_id else None
         norm_items.append(item)
 
     # 3. 预校验 category / account 名是否存在(O(1) 查询,给 LLM 清晰报错,
     #    跟单笔 create_transaction 的 _lookup_* 校验同口径)
     with SessionLocal() as db:
         _validate_names_exist(db, user.id, categories=cat_needed, accounts=acc_needed)
+        _validate_account_ids_exist(db, user.id, account_ids=acc_id_needed)
         mcp_tag_missing = _is_tag_missing_in_ledger(
             db, user_id=user.id, ledger_id=led_internal_id, tag_name=_MCP_DEFAULT_TAG,
         )
@@ -533,15 +568,31 @@ async def create_transactions(
             }
     else:
         acc_ccy_map = {}
+    if acc_id_needed:
+        with SessionLocal() as db:
+            acc_ccy_id_map = {
+                sync_id: (
+                    db.scalar(
+                        select(UserAccountProjection.currency).where(
+                            UserAccountProjection.user_id == user.id,
+                            UserAccountProjection.sync_id == sync_id,
+                        ).limit(1)
+                    ) or ""
+                ).strip().upper() or None
+                for sync_id in acc_id_needed
+            }
+    else:
+        acc_ccy_id_map = {}
     for item in norm_items:
         ccy_arg = item.pop("__ccy_arg", None)
         acc_name = item.pop("__acc_name", None)
+        acc_id = item.pop("__acc_id", None)
         if item["tx_type"] == "transfer":
             continue  # 转账不折算(同币种守卫)
         fields = await _build_currency_fields(
             user,
             ledger_base=batch_ledger_base,
-            account_currency=acc_ccy_map.get(acc_name),
+            account_currency=acc_ccy_id_map.get(acc_id) or acc_ccy_map.get(acc_name),
             currency_arg=ccy_arg,
             amount=item["amount"],
         )
@@ -557,6 +608,7 @@ async def create_transactions(
     created_ids: list[str] = []
     for start in range(0, len(norm_items), _BATCH_CHUNK):
         chunk = norm_items[start : start + _BATCH_CHUNK]
+        chunk_key = f"{idempotency_key}:{start // _BATCH_CHUNK}"
         result = await _self_call(
             "POST",
             path,
@@ -566,6 +618,7 @@ async def create_transactions(
                 "transactions": chunk,
                 "auto_ai_tag": False,  # MCP 用自己的 MCP 标签,不要"AI 记账"标签
             },
+            headers={"Idempotency-Key": chunk_key, "X-Device-ID": "mcp-batch"},
         )
         created_ids.extend(result.get("created_sync_ids") or [])
 
@@ -766,6 +819,23 @@ def _validate_names_exist(
                 f"Unknown accounts: {missing}. Use existing account names "
                 "(call list_accounts)."
             )
+
+
+def _validate_account_ids_exist(db, user_id: str, *, account_ids: set[str]) -> None:
+    if not account_ids:
+        return
+    found = {
+        sync_id
+        for (sync_id,) in db.execute(
+            select(UserAccountProjection.sync_id).where(
+                UserAccountProjection.user_id == user_id,
+                UserAccountProjection.sync_id.in_(account_ids),
+            )
+        ).all()
+    }
+    missing = sorted(account_ids - found)
+    if missing:
+        raise ValueError(f"Unknown account IDs: {missing}")
 
 
 def _lookup_category_sync_id(db, user_id: str, name: str | None, tx_type: str | None) -> str | None:
