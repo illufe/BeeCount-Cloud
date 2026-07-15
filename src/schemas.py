@@ -766,6 +766,8 @@ class WriteCommitMeta(BaseModel):
     server_timestamp: datetime
     idempotency_replayed: bool = False
     entity_id: str | None = None
+    created_sync_ids: list[str] = Field(default_factory=list)
+    attachment_id: str | None = None
 
 
 class WriteBaseRequest(BaseModel):
