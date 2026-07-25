@@ -1237,8 +1237,10 @@ const zhCN = {
   'currency.region.southAmerica': '南美',
   'currency.region.oceania': '大洋洲',
   'currency.region.africa': '非洲',
+  'currency.region.preciousMetals': '贵金属',
   // 货币本地化(对齐 mobile l10n);新增 code 时同步加 zh-CN/zh-TW/en 三处
   'currency.CNY': '人民币',
+  'currency.XAU': '黄金（金衡盎司）',
   'currency.JPY': '日元',
   'currency.KRW': '韩元',
   'currency.HKD': '港元',

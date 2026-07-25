@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -76,6 +76,9 @@ class BatchTransactionItem(BaseModel):
     # v30 交易级多币种:调用方(MCP)按账户/主币种定好并折算后传入
     currency_code: str | None = None
     native_amount: float | None = None
+    # MCP 交易排除标记;None 表示旧调用未提供,保持原默认 false
+    exclude_from_stats: StrictBool | None = None
+    exclude_from_budget: StrictBool | None = None
 
 
 class BatchCreateTxRequest(BaseModel):
@@ -391,6 +394,10 @@ def _build_tx_payload(
         payload["currency_code"] = item.currency_code
     if item.native_amount is not None:
         payload["native_amount"] = item.native_amount
+    if item.exclude_from_stats is not None:
+        payload["exclude_from_stats"] = item.exclude_from_stats
+    if item.exclude_from_budget is not None:
+        payload["exclude_from_budget"] = item.exclude_from_budget
     # 合并 auto_tag(LLM 已识别的 tags + 自动加的 AI 记账 / 图片记账)
     user_tags = list(item.tags or [])
     merged_tags = user_tags + [t for t in auto_tag_names if t and t not in user_tags]

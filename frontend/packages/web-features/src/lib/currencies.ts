@@ -1,6 +1,6 @@
 /**
- * 跟 mobile `lib/utils/currencies.dart` 保持同一份货币 code 列表(151 个,
- * 覆盖通行 ISO 4217;全部在汇率源 fawaz currency-api 有报价)。新增货币只需在
+ * 跟 mobile `lib/utils/currencies.dart` 保持同一份货币 code 列表(含法定币种和贵金属,
+ * 覆盖通行 ISO 4217;新增货币只需在
  * 此追加,前端两端都得同步更新。
  *
  * 不单独维护 symbol 表 —— web 上目前没有展示 symbol 的地方,需要时可从
@@ -17,6 +17,7 @@ const CURRENCY_GROUPS: Array<{ region: string; codes: string[] }> = [
   { region: 'europe', codes: ['EUR', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK', 'HUF', 'RUB', 'BYN', 'UAH', 'RON', 'BGN', 'RSD', 'ISK', 'MDL', 'ALL', 'MKD', 'BAM', 'GIP'] },
   { region: 'northAmerica', codes: ['USD', 'CAD', 'MXN'] },
   { region: 'centralAmericaCaribbean', codes: ['GTQ', 'HNL', 'NIO', 'CRC', 'PAB', 'DOP', 'CUP', 'JMD', 'TTD', 'BSD', 'BBD', 'BZD', 'HTG', 'XCD', 'KYD', 'AWG', 'ANG', 'BMD'] },
+  { region: 'preciousMetals', codes: ['XAU'] },
   { region: 'southAmerica', codes: ['BRL', 'ARS', 'CLP', 'COP', 'PEN', 'UYU', 'PYG', 'BOB', 'VES', 'GYD', 'SRD'] },
   { region: 'oceania', codes: ['AUD', 'NZD', 'FJD', 'PGK', 'SBD', 'TOP', 'VUV', 'WST', 'XPF'] },
   { region: 'africa', codes: ['ZAR', 'EGP', 'NGN', 'KES', 'GHS', 'MAD', 'DZD', 'TND', 'LYD', 'ETB', 'UGX', 'TZS', 'RWF', 'XAF', 'XOF', 'MUR', 'BWP', 'NAD', 'ZMW', 'MWK', 'MZN', 'AOA', 'CDF', 'GMD', 'GNF', 'LRD', 'SLE', 'SDG', 'SSP', 'SOS', 'DJF', 'ERN', 'BIF', 'CVE', 'STN', 'SCR', 'KMF', 'LSL', 'SZL', 'MGA', 'MRU'] },
@@ -40,6 +41,7 @@ export const CURRENCY_REGION_GROUPS = CURRENCY_GROUPS
  */
 export function currencySymbol(code: string, locale = 'zh-CN'): string {
   const upper = code.toUpperCase()
+  if (upper === 'XAU') return 'XAU'
   try {
     const parts = new Intl.NumberFormat(locale, {
       style: 'currency',
@@ -50,6 +52,17 @@ export function currencySymbol(code: string, locale = 'zh-CN'): string {
   } catch {
     return upper
   }
+}
+
+/** Convert XAU's native troy-ounce unit to grams. */
+export const GRAMS_PER_XAU = 31.1034768
+
+export function xauToGrams(xau: number): number {
+  return xau * GRAMS_PER_XAU
+}
+
+export function gramsToXau(grams: number): number {
+  return grams / GRAMS_PER_XAU
 }
 
 /** 币种码 → ISO 国家码(国旗用)。前两位派生;欧盟/台币/区域货币特例。

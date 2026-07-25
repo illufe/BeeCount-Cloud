@@ -16,6 +16,7 @@ router endpoint,而不是直接动 DB。原因:
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -248,6 +249,7 @@ async def update_transaction(
     user: User,
     *,
     sync_id: str,
+    ledger_id: str,
     amount: float | None = None,
     tx_type: str | None = None,
     category: str | None = None,
@@ -255,8 +257,28 @@ async def update_transaction(
     happened_at: str | None = None,
     note: str | None = None,
     tags: list[str] | None = None,
+    currency_code: str | None = None,
+    native_amount: float | None = None,
 ) -> dict[str, Any]:
-    """更新现有交易。只更新传入的字段。"""
+    """更新现有交易。只更新传入的字段,且必须绑定明确账本。"""
+    target_ledger_id = str(ledger_id or "").strip()
+    if not target_ledger_id:
+        raise ValueError("ledger_id is required")
+    normalized_currency = None
+    if currency_code is not None:
+        normalized_currency = str(currency_code).strip().upper()
+        if not normalized_currency:
+            raise ValueError("currency_code must not be empty")
+    if native_amount is not None:
+        if normalized_currency is None:
+            raise ValueError("native_amount requires currency_code")
+        if (
+            isinstance(native_amount, bool)
+            or not isinstance(native_amount, (int, float))
+            or not math.isfinite(float(native_amount))
+            or float(native_amount) <= 0
+        ):
+            raise ValueError("native_amount must be a finite positive number")
     with SessionLocal() as db:
         existing = db.scalar(
             select(ReadTxProjection).where(
@@ -269,6 +291,10 @@ async def update_transaction(
         led = db.scalar(select(Ledger).where(Ledger.id == existing.ledger_id))
         if led is None:
             raise ValueError("Ledger missing for this tx")
+        if led.external_id != target_ledger_id:
+            raise ValueError(
+                f"ledger_id does not match transaction ledger: {target_ledger_id}"
+            )
         ledger_external_id = led.external_id
         effective_tx_type = tx_type or existing.tx_type
         if category:
@@ -299,6 +325,10 @@ async def update_transaction(
             patch["account_name"] = account
     if tags is not None:
         patch["tags"] = list(tags)
+    if normalized_currency is not None:
+        patch["currency_code"] = normalized_currency
+    if native_amount is not None:
+        patch["native_amount"] = float(native_amount)
 
     settings = get_settings()
     path = f"{settings.api_prefix}/write/ledgers/{ledger_external_id}/transactions/{sync_id}"
@@ -495,6 +525,21 @@ async def create_transactions(
             "amount": float(amount),
             "happened_at": happened.isoformat(),
         }
+        for flag in ("exclude_from_stats", "exclude_from_budget"):
+            if flag in raw:
+                if type(raw[flag]) is not bool:
+                    raise ValueError(f"transactions[{i}]: {flag} must be a boolean")
+                item[flag] = raw[flag]
+        if "native_amount" in raw:
+            native_amount = raw.get("native_amount")
+            if (
+                not isinstance(native_amount, (int, float))
+                or isinstance(native_amount, bool)
+                or not math.isfinite(float(native_amount))
+                or float(native_amount) <= 0
+            ):
+                raise ValueError(f"transactions[{i}]: native_amount must be a finite positive number")
+            item["__native_amount_arg"] = float(native_amount)
         if raw.get("note"):
             item["note"] = str(raw["note"])
         category = raw.get("category")
@@ -560,6 +605,7 @@ async def create_transactions(
                     raise ValueError(
                         f"transactions[{i}]: cross-currency transfers are unsupported"
                     )
+                item["__account_currency"] = source["currency"]
             else:
                 item["__account_currency"] = _resolve_account_ref(
                     item, "account_id", "account_name", i, account_by_id, account_by_name
@@ -571,14 +617,19 @@ async def create_transactions(
     # 3.5 v30 多币种折算:逐笔定币种 + 折 native。
     for item in norm_items:
         ccy_arg = item.pop("__ccy_arg", None)
-        if item["tx_type"] == "transfer":
-            continue  # 转账不折算(同币种守卫)
+        explicit_native_amount = item.pop("__native_amount_arg", None)
+        if item["tx_type"] == "transfer" and explicit_native_amount is None:
+            item.pop("__account_currency", None)
+            if ccy_arg:
+                item["currency_code"] = ccy_arg
+            continue  # 保持旧行为:转账只守卫同币种,不做运行时折算
         fields = await _build_currency_fields(
             user,
             ledger_base=batch_ledger_base,
             account_currency=item.pop("__account_currency"),
             currency_arg=ccy_arg,
             amount=item["amount"],
+            explicit_native_amount=explicit_native_amount,
         )
         item.update(fields)
 
@@ -911,6 +962,7 @@ async def _build_currency_fields(
     account_currency: str | None,
     currency_arg: str | None,
     amount: float,
+    explicit_native_amount: float | None = None,
 ) -> dict[str, Any]:
     """v30 交易级多币种:MCP 记账时定交易币种 + 折账本本位币快照。
 
@@ -921,9 +973,21 @@ async def _build_currency_fields(
     """
     base = ledger_base.strip().upper()
     cc = (currency_arg or account_currency or base).strip().upper()
-    if cc == base:
-        # 本位币:body 不带两字段(server 落 NULL,统计 COALESCE 回退 amount)
+    if not cc:
+        if explicit_native_amount is not None:
+            raise ValueError("native_amount requires an explicit currency")
         return {}
+    if explicit_native_amount is not None:
+        if (
+            not math.isfinite(float(explicit_native_amount))
+            or float(explicit_native_amount) <= 0
+        ):
+            raise ValueError("native_amount must be a finite positive number")
+        return {"currency_code": cc, "native_amount": float(explicit_native_amount)}
+    if cc == base:
+        # 显式币种也回写 currency_code,让执行器可严格核对 plan-bound currency;
+        # 未显式传 currency 的旧调用仍保持 NULL 回退行为。
+        return {"currency_code": cc} if currency_arg else {}
     # override 优先(user-global,同步表)
     with SessionLocal() as db:
         ov = db.scalar(

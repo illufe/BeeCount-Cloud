@@ -32,6 +32,7 @@ import {
   LIABILITY_TYPES,
   splitByCurrency
 } from '../lib/assetAggregation'
+import { xauToGrams } from '../lib/currencies'
 
 
 type MobileStyleAssetsProps = {
@@ -544,6 +545,11 @@ function BankCardTile({
               bold
               className="mt-0.5 block text-[18px] leading-tight drop-shadow text-white"
             />
+            {currency.toUpperCase() === 'XAU' ? (
+              <div className="mt-0.5 text-[11px] text-white/75">
+                {xauToGrams(valuationValue).toFixed(2)} g
+              </div>
+            ) : null}
           </div>
         ) : isCreditCard ? (
           ccLimit !== null ? (

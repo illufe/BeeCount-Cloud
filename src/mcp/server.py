@@ -413,6 +413,7 @@ async def create_transactions(
 async def update_transaction(
     ctx: Context,
     sync_id: str,
+    ledger_id: str,
     amount: float | None = None,
     tx_type: str | None = None,
     category: str | None = None,
@@ -420,11 +421,14 @@ async def update_transaction(
     happened_at: str | None = None,
     note: str | None = None,
     tags: list[str] | None = None,
+    currency_code: str | None = None,
+    native_amount: float | None = None,
 ) -> dict[str, Any]:
-    """Patch an existing transaction. Only the fields you pass are changed."""
+    """Patch an existing transaction within the explicitly selected ledger."""
     kw = dict(
-        sync_id=sync_id, amount=amount, tx_type=tx_type, category=category,
-        account=account, happened_at=happened_at, note=note, tags=tags,
+        sync_id=sync_id, ledger_id=ledger_id, amount=amount, tx_type=tx_type,
+        category=category, account=account, happened_at=happened_at, note=note,
+        tags=tags, currency_code=currency_code, native_amount=native_amount,
     )
     return await _logged_call(
         ctx, name="update_transaction", scope=SCOPE_MCP_WRITE, kwargs=kw,
