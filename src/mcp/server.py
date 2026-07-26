@@ -266,12 +266,15 @@ async def list_categories(
 
 @mcp.tool()
 async def list_accounts(
-    ctx: Context, account_type: str | None = None
+    ctx: Context, account_id: str | None = None, account_type: str | None = None
 ) -> list[dict[str, Any]]:
-    """List user's accounts. account_type filters by type (bank_card, credit_card, cash, ...)."""
+    """List accounts; optional account_id gives an exact, efficient readback."""
     return await _logged_call(
-        ctx, name="list_accounts", scope=SCOPE_MCP_READ, kwargs={"account_type": account_type},
-        body=lambda user: asyncio.to_thread(read_tools.list_accounts, user, account_type=account_type),
+        ctx, name="list_accounts", scope=SCOPE_MCP_READ,
+        kwargs={"account_id": account_id, "account_type": account_type},
+        body=lambda user: asyncio.to_thread(
+            read_tools.list_accounts, user, account_id=account_id, account_type=account_type
+        ),
     )
 
 
@@ -510,6 +513,7 @@ async def create_account(
     account_type: str | None = None,
     currency: str | None = None,
     initial_balance: float = 0.0,
+    hidden: bool = False,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Create an account; ledger_id is always required."""
@@ -519,6 +523,7 @@ async def create_account(
         "account_type": account_type,
         "currency": currency,
         "initial_balance": initial_balance,
+        "hidden": hidden,
         "base_change_id": base_change_id,
     }
     return await _logged_call(
@@ -536,6 +541,7 @@ async def update_account(
     account_type: str | None = None,
     currency: str | None = None,
     initial_balance: float | None = None,
+    hidden: bool | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Update an account by account_id; ledger_id is always required."""
@@ -546,6 +552,7 @@ async def update_account(
         "account_type": account_type,
         "currency": currency,
         "initial_balance": initial_balance,
+        "hidden": hidden,
         "base_change_id": base_change_id,
     }
     return await _logged_call(

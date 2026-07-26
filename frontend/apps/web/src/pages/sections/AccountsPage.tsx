@@ -258,6 +258,7 @@ export function AccountsPage() {
         payment_due_day: isCreditCard ? paymentDueDayNum : null,
         bank_name: isBankOrCredit ? form.bank_name.trim() || null : null,
         card_last_four: isBankOrCredit ? form.card_last_four.trim() || null : null,
+        hidden: form.hidden,
       }
       await retryOnConflict(activeLedgerId, (base) =>
         form.editingId
@@ -544,6 +545,7 @@ export function AccountsPage() {
               : '',
             bank_name: row.bank_name ?? '',
             card_last_four: row.card_last_four ?? '',
+            hidden: Boolean(row.hidden),
           })
         }}
         onClickAccount={(row) =>

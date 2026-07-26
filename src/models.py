@@ -594,6 +594,7 @@ class UserAccountProjection(Base):
     payment_due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bank_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     card_last_four: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false(), default=False)
     source_change_id: Mapped[int] = mapped_column(BigInteger, default=0)
 
 

@@ -153,6 +153,7 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
         UserAccountProjection.payment_due_day,
         UserAccountProjection.bank_name,
         UserAccountProjection.card_last_four,
+        UserAccountProjection.hidden,
     ).where(UserAccountProjection.user_id == user_id)
     for (
         sid,
@@ -166,6 +167,7 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
         payment_due_day,
         bank_name,
         card_last_four,
+        hidden,
     ) in db.execute(acc_stmt).all():
         acc: dict[str, Any] = {"syncId": sid, "name": name or ""}
         if acc_type:
@@ -186,6 +188,7 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
             acc["bankName"] = bank_name
         if card_last_four:
             acc["cardLastFour"] = card_last_four
+        acc["hidden"] = bool(hidden)
         accounts.append(acc)
 
     # Categories —— 同 accounts,user-global per-user。

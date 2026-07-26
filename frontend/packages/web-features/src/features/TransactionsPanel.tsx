@@ -283,7 +283,13 @@ export function TransactionsPanel({
   const textDangerActionClass =
     'text-sm text-destructive underline-offset-4 hover:text-destructive/90 hover:underline disabled:pointer-events-none disabled:text-muted-foreground disabled:no-underline'
 
+  const pinnedAccountNames = new Set(
+    [form.account_name, form.from_account_name, form.to_account_name]
+      .map((name) => name.trim())
+      .filter(Boolean),
+  )
   const accountOptions = accounts
+    .filter((row) => !row.hidden || pinnedAccountNames.has(row.name.trim()))
     .map((row) => row.name.trim())
     .filter((name) => name.length > 0)
     .filter((name, index, self) => self.indexOf(name) === index)

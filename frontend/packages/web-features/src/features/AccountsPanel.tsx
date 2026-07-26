@@ -926,7 +926,9 @@ export function AccountsPanel({
   }, [rows, t])
 
   // 底部列表:跨币种按类型分组(每组小计按币种拆,见 computeTypeGroups)。
-  const listGroups = useMemo(() => computeTypeGroups(rows, t), [rows, t])
+  const visibleRows = useMemo(() => rows.filter((row) => !row.hidden), [rows])
+  const hiddenRows = useMemo(() => rows.filter((row) => row.hidden), [rows])
+  const visibleListGroups = useMemo(() => computeTypeGroups(visibleRows, t), [visibleRows, t])
 
   // 顶部"新建账户"按钮 —— rows 空时也要显示,否则首次使用没法建账户。
   // 复用现有 dialog,form 重置成 defaults 让 dialog 进入 create 模式。
@@ -941,7 +943,7 @@ export function AccountsPanel({
           视觉锚，再加一个"资产管理"横条显得冗余。
           有数据时:button 在 stats 卡片下方(MobileStyleAssets 内部);
           空数据时:把 button 显示在 EmptyState 上方,引导首次创建。 */}
-      {rows.length === 0 ? (
+      {visibleRows.length === 0 ? (
         <>
           <div className="mb-3 flex items-center justify-end">
             <Button size="sm" disabled={!canManage} onClick={handleOpenCreate}>
@@ -965,7 +967,7 @@ export function AccountsPanel({
       ) : (
         <MobileStyleAssets
           byCurrency={currencyBuckets}
-          listGroups={listGroups}
+          listGroups={visibleListGroups}
           canManage={canManage}
           onEdit={(row) => {
             onEdit(row)
@@ -977,6 +979,27 @@ export function AccountsPanel({
           hideCurrencyCards={hideCurrencyCards}
         />
       )}
+
+      {hiddenRows.length > 0 ? (
+        <details className="mt-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">
+            {t('accounts.hidden.title')} ({hiddenRows.length})
+          </summary>
+          <div className="mt-2 divide-y divide-border/50">
+            {hiddenRows.map((row) => (
+              <div key={row.id} className="flex items-center justify-between gap-2 py-2 text-sm">
+                <span className="truncate">{row.name} · {row.currency || 'CNY'}</span>
+                <Button size="sm" variant="outline" onClick={() => {
+                  onEdit(row)
+                  setOpen(true)
+                }}>
+                  {t('accounts.hidden.manage')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[88vh] overflow-y-auto">
@@ -1064,6 +1087,15 @@ export function AccountsPanel({
                 onChange={(e) => onFormChange({ ...form, initial_balance: e.target.value })}
               />
             </div>
+            {form.editingId ? (
+              <Button
+                type="button"
+                variant={form.hidden ? 'default' : 'outline'}
+                onClick={() => onFormChange({ ...form, hidden: !form.hidden })}
+              >
+                {form.hidden ? t('accounts.hidden.restore') : t('accounts.hidden.hide')}
+              </Button>
+            ) : null}
 
             {/* 信用卡专属:信用额度 + 账单日 + 还款日(对齐 mobile credit_card
                 section)。还款提醒是 mobile 本地 SharedPreferences 不走 server,

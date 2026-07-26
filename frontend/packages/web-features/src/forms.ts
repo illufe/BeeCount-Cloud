@@ -45,6 +45,7 @@ export type AccountForm = {
   bank_name: string
   /** 卡号后四位,bank_card / credit_card 元信息。 */
   card_last_four: string
+  hidden: boolean
 }
 
 export type CategoryForm = {
@@ -122,6 +123,7 @@ export const accountDefaults = (): AccountForm => ({
   payment_due_day: '',
   bank_name: '',
   card_last_four: '',
+  hidden: false,
 })
 
 export const categoryDefaults = (): CategoryForm => ({

@@ -62,6 +62,7 @@ class SharedAccountItem(BaseModel):
     payment_due_day: int | None
     bank_name: str | None
     card_last_four: str | None
+    hidden: bool = False
 
 
 class SharedTagItem(BaseModel):
@@ -144,6 +145,7 @@ def get_shared_resources(
                 payment_due_day=a.payment_due_day,
                 bank_name=a.bank_name,
                 card_last_four=a.card_last_four,
+                hidden=bool(a.hidden),
             )
             for a in accts
         ],

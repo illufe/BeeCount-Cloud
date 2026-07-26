@@ -561,6 +561,7 @@ class ReadAccountOut(BaseModel):
     payment_due_day: int | None = None
     bank_name: str | None = None
     card_last_four: str | None = None
+    hidden: bool = False
 
 
 class ReadCategoryOut(BaseModel):
@@ -856,6 +857,7 @@ class WriteAccountCreateRequest(WriteBaseRequest):
     payment_due_day: int | None = Field(default=None, ge=1, le=31)
     bank_name: str | None = None
     card_last_four: str | None = Field(default=None, max_length=8)
+    hidden: bool = False
 
 
 class WriteAccountUpdateRequest(WriteBaseRequest):
@@ -869,6 +871,7 @@ class WriteAccountUpdateRequest(WriteBaseRequest):
     payment_due_day: int | None = Field(default=None, ge=1, le=31)
     bank_name: str | None = None
     card_last_four: str | None = Field(default=None, max_length=8)
+    hidden: bool | None = None
 
 
 class WriteBudgetCreateRequest(WriteBaseRequest):

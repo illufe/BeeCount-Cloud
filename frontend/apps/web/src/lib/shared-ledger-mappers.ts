@@ -56,6 +56,7 @@ export function sharedAccountToReadAccount(a: SharedAccountItem): ReadAccount {
     payment_due_day: a.payment_due_day,
     bank_name: a.bank_name,
     card_last_four: a.card_last_four,
+    hidden: a.hidden,
   }
 }
 

@@ -237,10 +237,14 @@ def list_categories(user: User, *, kind: str | None = None) -> list[dict[str, An
         ]
 
 
-def list_accounts(user: User, *, account_type: str | None = None) -> list[dict[str, Any]]:
+def list_accounts(
+    user: User, *, account_id: str | None = None, account_type: str | None = None
+) -> list[dict[str, Any]]:
     """列账户。account_type 可选 'bank_card' / 'credit_card' / 'cash' / 等。"""
     with SessionLocal() as db:
         query = select(UserAccountProjection).where(UserAccountProjection.user_id == user.id)
+        if account_id:
+            query = query.where(UserAccountProjection.sync_id == account_id)
         if account_type:
             query = query.where(UserAccountProjection.account_type == account_type)
         rows = db.scalars(query).all()
@@ -248,6 +252,36 @@ def list_accounts(user: User, *, account_type: str | None = None) -> list[dict[s
         for r in rows:
             if r.sync_id not in seen:
                 seen[r.sync_id] = r
+        ledgers = live_ledgers(db, user.id)
+        ledger_ids = [ledger.id for ledger in ledgers]
+        stats: dict[str, dict[str, Any]] = {}
+        if ledger_ids:
+            tx_query = select(ReadTxProjection).where(ReadTxProjection.ledger_id.in_(ledger_ids))
+            if account_id:
+                tx_query = tx_query.where(or_(
+                    ReadTxProjection.account_sync_id == account_id,
+                    ReadTxProjection.from_account_sync_id == account_id,
+                    ReadTxProjection.to_account_sync_id == account_id,
+                ))
+            txs = db.scalars(tx_query).all()
+            for tx in txs:
+                ids = {x for x in (tx.account_sync_id, tx.from_account_sync_id, tx.to_account_sync_id) if x}
+                for account_id in ids:
+                    bucket = stats.setdefault(account_id, {"balance": 0.0, "transaction_count": 0, "last_transaction_at": None})
+                    bucket["transaction_count"] += 1
+                    if tx.happened_at and (bucket["last_transaction_at"] is None or tx.happened_at > bucket["last_transaction_at"]):
+                        bucket["last_transaction_at"] = tx.happened_at
+                    if tx.tx_type == "income" and tx.account_sync_id == account_id:
+                        bucket["balance"] += float(tx.amount or 0)
+                    elif tx.tx_type == "expense" and tx.account_sync_id == account_id:
+                        bucket["balance"] -= float(tx.amount or 0)
+                    elif tx.tx_type == "adjustment" and tx.account_sync_id == account_id:
+                        bucket["balance"] += float(tx.amount or 0)
+                    elif tx.tx_type == "transfer":
+                        if tx.from_account_sync_id == account_id:
+                            bucket["balance"] -= float(tx.amount or 0)
+                        if tx.to_account_sync_id == account_id:
+                            bucket["balance"] += float(tx.amount or 0)
         return [
             {
                 "id": r.sync_id,
@@ -261,6 +295,13 @@ def list_accounts(user: User, *, account_type: str | None = None) -> list[dict[s
                 "credit_limit": float(r.credit_limit) if r.credit_limit is not None else None,
                 "billing_day": r.billing_day,
                 "payment_due_day": r.payment_due_day,
+                "hidden": bool(r.hidden),
+                "balance": float(r.initial_balance or 0) + float(stats.get(r.sync_id, {}).get("balance", 0.0)),
+                "transaction_count": int(stats.get(r.sync_id, {}).get("transaction_count", 0)),
+                "last_transaction_at": (
+                    stats.get(r.sync_id, {}).get("last_transaction_at").isoformat()
+                    if stats.get(r.sync_id, {}).get("last_transaction_at") else None
+                ),
             }
             for r in sorted(seen.values(), key=lambda r: (r.name or "").lower())
         ]

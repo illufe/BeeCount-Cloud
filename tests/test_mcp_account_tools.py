@@ -16,7 +16,7 @@ from src.database import Base, get_db
 from src.main import app
 from src.mcp import server
 from src.mcp.tools import account_tools, read_tools
-from src.models import User
+from src.models import Ledger, ReadTxProjection, User
 from src.security import SCOPE_MCP_ACCOUNT_WRITE, SCOPE_MCP_WRITE
 
 
@@ -93,6 +93,7 @@ def test_account_tools_crud_and_delete_confirmation(monkeypatch) -> None:
             )
         )
         assert created["status"] == "created"
+        assert created["hidden"] is False
         account_id = created["account_id"]
         assert account_id.startswith("acc_")
 
@@ -106,6 +107,41 @@ def test_account_tools_crud_and_delete_confirmation(monkeypatch) -> None:
         assert {row["name"] for row in account_rows} == {"Cash Updated"}
         assert account_rows[0]["id"] == account_id
         assert account_rows[0]["source_change_id"] >= 1
+        assert account_rows[0]["hidden"] is False
+
+        hidden = asyncio.run(
+            account_tools.update_account(
+                user, ledger_id=ledger_id, account_id=account_id, hidden=True
+            )
+        )
+        assert hidden["status"] == "updated"
+        assert read_tools.list_accounts(user)[0]["hidden"] is True
+        asyncio.run(
+            account_tools.update_account(
+                user, ledger_id=ledger_id, account_id=account_id, hidden=False
+            )
+        )
+        assert read_tools.list_accounts(user)[0]["hidden"] is False
+
+        with Session() as db:
+            ledger = db.scalar(select(Ledger).where(Ledger.external_id == ledger_id))
+            assert ledger is not None
+            db.add(ReadTxProjection(
+                ledger_id=ledger.id,
+                sync_id="tx_mcp_account_stats",
+                user_id=user.id,
+                tx_type="income",
+                amount=5.0,
+                happened_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+                account_sync_id=account_id,
+            ))
+            db.commit()
+        stats = read_tools.list_accounts(user)[0]
+        assert stats["balance"] == 5.0
+        assert stats["transaction_count"] == 1
+        assert stats["last_transaction_at"].startswith("2026-07-01T00:00:00")
+        assert read_tools.list_accounts(user, account_id=account_id)[0]["id"] == account_id
+        assert read_tools.list_accounts(user, account_id="missing") == []
 
         pending = asyncio.run(
             account_tools.delete_account(

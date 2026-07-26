@@ -37,6 +37,7 @@ async def create_account(
     account_type: str | None = None,
     currency: str | None = None,
     initial_balance: float = 0.0,
+    hidden: bool = False,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Create an account in an explicitly selected ledger."""
@@ -51,6 +52,7 @@ async def create_account(
         "base_change_id": base_change_id,
         "name": name,
         "initial_balance": float(initial_balance),
+        "hidden": bool(hidden),
     }
     if account_type is not None:
         body["account_type"] = account_type
@@ -68,6 +70,7 @@ async def create_account(
         "account_type": account_type,
         "currency": currency,
         "initial_balance": float(initial_balance),
+        "hidden": bool(hidden),
         "_meta": result,
     }
 
@@ -81,12 +84,13 @@ async def update_account(
     account_type: str | None = None,
     currency: str | None = None,
     initial_balance: float | None = None,
+    hidden: bool | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Update an account by explicit account id."""
     ledger_id = _require_id("ledger_id", ledger_id)
     account_id = _require_id("account_id", account_id)
-    if all(value is None for value in (name, account_type, currency, initial_balance)):
+    if all(value is None for value in (name, account_type, currency, initial_balance, hidden)):
         raise ValueError("at least one account field is required")
     ledger, status = _resolve_account_ledger(user, ledger_id)
     if status is not None:
@@ -99,6 +103,7 @@ async def update_account(
         ("account_type", account_type),
         ("currency", currency),
         ("initial_balance", initial_balance),
+        ("hidden", hidden),
     ):
         if value is not None:
             body[key] = value

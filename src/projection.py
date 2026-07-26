@@ -337,6 +337,7 @@ def upsert_account(
         "payment_due_day": _opt_int(payload.get("paymentDueDay")),
         "bank_name": _as_str(payload.get("bankName")),
         "card_last_four": _as_str(payload.get("cardLastFour")),
+        "hidden": _as_bool(payload.get("hidden"), default=False),
         "source_change_id": source_change_id,
     }
     _upsert(db, UserAccountProjection, ("user_id", "sync_id"), values)

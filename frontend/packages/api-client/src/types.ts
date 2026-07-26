@@ -229,6 +229,7 @@ export type ReadAccount = {
   bank_name?: string | null
   /** 卡号后四位,bank_card / credit_card。 */
   card_last_four?: string | null
+  hidden?: boolean
 }
 
 export type ReadCategory = {
@@ -593,6 +594,7 @@ export type AccountPayload = {
   payment_due_day?: number | null
   bank_name?: string | null
   card_last_four?: string | null
+  hidden?: boolean
 }
 
 export type CategoryPayload = {
@@ -690,6 +692,7 @@ export type SharedAccountItem = {
   payment_due_day: number | null
   bank_name: string | null
   card_last_four: string | null
+  hidden?: boolean
 }
 
 export type SharedTagItem = {

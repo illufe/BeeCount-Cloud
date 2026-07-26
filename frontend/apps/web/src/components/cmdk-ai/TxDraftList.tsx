@@ -240,7 +240,10 @@ function TxCard({
   const missingCategory = !isTransfer && !draft.categoryId
   const [catPickerOpen, setCatPickerOpen] = useState(false)
 
-  const accountNames = useMemo(() => accounts.map((a) => a.name).filter(Boolean), [accounts])
+  const accountNames = useMemo(
+    () => accounts.filter((account) => !account.hidden).map((a) => a.name).filter(Boolean),
+    [accounts],
+  )
 
   // type 变化时同步 categoryKind 候选
   const pickerKind: 'expense' | 'income' = draft.type === 'income' ? 'income' : 'expense'

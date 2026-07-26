@@ -130,6 +130,7 @@ _USER_MERGE_SPECS: dict[str, _MergeSpec] = {
         ("paymentDueDay", "payment_due_day"),
         ("bankName", "bank_name"),
         ("cardLastFour", "card_last_four"),
+        ("hidden", "hidden"),
     ]),
     "exchange_rate_override": _MergeSpec(UserExchangeRateProjection, [
         ("syncId", "sync_id"),

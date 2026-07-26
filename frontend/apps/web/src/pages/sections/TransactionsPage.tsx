@@ -522,15 +522,24 @@ export function TransactionsPage() {
   const txWriteAccounts = useMemo(() => {
     const source =
       txIsSharedEditor && sharedBundle ? sharedAsRead.accounts : txDictionaryAccounts
+    const pinned = new Set(
+      [txForm.account_name, txForm.from_account_name, txForm.to_account_name]
+        .map((name) => name.trim())
+        .filter(Boolean),
+    )
     return source.filter((row) => {
       const currency = (row.currency || 'CNY').trim().toUpperCase()
       if (currency !== txFormCurrency) return false
       if (VALUATION_ACCOUNT_TYPES.has(row.account_type || '')) return false
+      if (row.hidden && !pinned.has((row.name || '').trim())) return false
       return true
     })
   }, [
     txDictionaryAccounts,
     txFormCurrency,
+    txForm.account_name,
+    txForm.from_account_name,
+    txForm.to_account_name,
     VALUATION_ACCOUNT_TYPES,
     txIsSharedEditor,
     sharedBundle,
