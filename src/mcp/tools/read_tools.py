@@ -82,9 +82,16 @@ def _serialize_tx(row: ReadTxProjection, category_name: str | None) -> dict[str,
         "note": row.note,
         "category_name": category_name or row.category_name,
         "account_name": row.account_name,
+        "account_id": getattr(row, "account_sync_id", None),
         "from_account_name": row.from_account_name,
+        "from_account_id": getattr(row, "from_account_sync_id", None),
         "to_account_name": row.to_account_name,
+        "to_account_id": getattr(row, "to_account_sync_id", None),
         "tags": row.tags_csv or "",
+        "currency_code": getattr(row, "currency_code", None),
+        "native_amount": getattr(row, "native_amount", None),
+        "exclude_from_stats": bool(getattr(row, "exclude_from_stats", False)),
+        "exclude_from_budget": bool(getattr(row, "exclude_from_budget", False)),
     }
 
 
@@ -243,10 +250,12 @@ def list_accounts(user: User, *, account_type: str | None = None) -> list[dict[s
                 seen[r.sync_id] = r
         return [
             {
+                "id": r.sync_id,
                 "name": r.name,
                 "account_type": r.account_type,
                 "currency": r.currency,
                 "initial_balance": float(r.initial_balance or 0),
+                "source_change_id": int(r.source_change_id or 0),
                 "bank_name": r.bank_name,
                 "card_last_four": r.card_last_four,
                 "credit_limit": float(r.credit_limit) if r.credit_limit is not None else None,

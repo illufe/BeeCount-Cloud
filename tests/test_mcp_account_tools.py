@@ -102,7 +102,10 @@ def test_account_tools_crud_and_delete_confirmation(monkeypatch) -> None:
             )
         )
         assert updated["status"] == "updated"
-        assert {row["name"] for row in read_tools.list_accounts(user)} == {"Cash Updated"}
+        account_rows = read_tools.list_accounts(user)
+        assert {row["name"] for row in account_rows} == {"Cash Updated"}
+        assert account_rows[0]["id"] == account_id
+        assert account_rows[0]["source_change_id"] >= 1
 
         pending = asyncio.run(
             account_tools.delete_account(

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -216,6 +217,7 @@ def test_a3_bulk_refuses_multi_ledger_without_id(monkeypatch) -> None:
                 user,
                 transactions=[{"amount": 5, "tx_type": "expense", "happened_at": "2026-05-01"}],
                 ledger_id=None,
+                idempotency_key="test-a3-multi-ledger",
             )
         )
         # B5:多账本不指定 → 拒绝瞎猜,返回候选(不写入)
@@ -233,6 +235,18 @@ def test_a3_bulk_unknown_category_errors(monkeypatch) -> None:
         u = _register(client, "a3cat@example.com")
         token = u["access_token"]
         led = _make_ledger(client, token, "L")
+        account_res = client.post(
+            f"/api/v1/write/ledgers/{led}/accounts",
+            headers={"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"},
+            json={
+                "base_change_id": 0,
+                "name": "Cash",
+                "account_type": "cash",
+                "currency": "CNY",
+                "initial_balance": 0,
+            },
+        )
+        assert account_res.status_code == 200, account_res.text
         user = _fetch_user(TS, "a3cat@example.com")
 
         with pytest.raises(ValueError, match="Unknown categories"):
@@ -240,9 +254,72 @@ def test_a3_bulk_unknown_category_errors(monkeypatch) -> None:
                 write_tools.create_transactions(
                     user,
                     transactions=[{"amount": 5, "category": "NoSuchCat",
+                                   "account_id": account_res.json()["entity_id"],
                                    "happened_at": "2026-05-01"}],
                     ledger_id=led,
+                    idempotency_key="test-a3-unknown-category",
                 )
             )
     finally:
         app.dependency_overrides.clear()
+
+
+def test_a3_mcp_batch_forwards_native_amount_and_exclude_flags(monkeypatch) -> None:
+    user = SimpleNamespace(id="user-1")
+    ledger = SimpleNamespace(id="ledger-internal", external_id="ledger-1", name="L", currency="CNY")
+    captured: list[dict] = []
+
+    class DummySession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    async def fake_self_call(_method, _path, _user, **kwargs):
+        captured.append(kwargs["json"])
+        return {"created_sync_ids": ["tx-1"]}
+
+    monkeypatch.setattr(write_tools, "SessionLocal", lambda: DummySession())
+    monkeypatch.setattr(write_tools, "_resolve_write_ledger", lambda *_args, **_kwargs: (ledger, None))
+    monkeypatch.setattr(write_tools, "_validate_names_exist", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(write_tools, "_load_account_details", lambda *_args, **_kwargs: (
+        {"acc-1": {"id": "acc-1", "name": "Cash", "currency": "CNY"}}, {}
+    ))
+    monkeypatch.setattr(write_tools, "_is_tag_missing_in_ledger", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(write_tools, "_self_call", fake_self_call)
+
+    result = _run_async(write_tools.create_transactions(
+        user,
+        ledger_id="ledger-1",
+        idempotency_key="batch-1",
+        transactions=[{
+            "tx_type": "expense", "amount": 2, "happened_at": "2026-05-01",
+            "account_id": "acc-1", "currency": "USD", "native_amount": 15,
+            "exclude_from_stats": True, "exclude_from_budget": True,
+        }],
+    ))
+    assert result["created_count"] == 1
+    item = captured[0]["transactions"][0]
+    assert item["currency_code"] == "USD"
+    assert item["native_amount"] == 15.0
+    assert item["exclude_from_stats"] is True
+    assert item["exclude_from_budget"] is True
+
+
+def test_a3_batch_request_model_preserves_native_and_exclude_fields() -> None:
+    from src.routers.write.transactions_batch import BatchTransactionItem, _build_tx_payload
+
+    item = BatchTransactionItem(
+        tx_type="expense", amount=2, happened_at="2026-05-01T00:00:00Z",
+        account_id="acc-1", currency_code="USD", native_amount=15,
+        exclude_from_stats=True, exclude_from_budget=True,
+    )
+    payload = _build_tx_payload(
+        item=item, auto_tag_names=[], attachment_dict=None,
+        actor_user=SimpleNamespace(id="user-1", is_admin=False),
+    )
+    assert payload["currency_code"] == "USD"
+    assert payload["native_amount"] == 15
+    assert payload["exclude_from_stats"] is True
+    assert payload["exclude_from_budget"] is True

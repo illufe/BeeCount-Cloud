@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { CURRENCY_CODES, currencyDisplayName } from '@beecount/web-features'
+import {
+  CURRENCY_CODES,
+  currencyDisplayName,
+  currencySymbol,
+  gramsToXau,
+  xauToGrams,
+} from '@beecount/web-features'
 
 describe('currencies', () => {
   it('CURRENCY_CODES 覆盖全部 + 含 issue#273 请求的 KES/XAF/XOF', () => {
-    expect(CURRENCY_CODES.length).toBe(151)
+    expect(CURRENCY_CODES.length).toBe(152)
     expect(CURRENCY_CODES).toEqual(
-      expect.arrayContaining(['KES', 'XAF', 'XOF', 'CNY', 'USD', 'EUR', 'JPY']),
+      expect.arrayContaining(['KES', 'XAF', 'XOF', 'XAU', 'CNY', 'USD', 'EUR', 'JPY']),
     )
   })
 
@@ -23,5 +29,14 @@ describe('currencies', () => {
 
   it('中文 locale 返回本地化名', () => {
     expect(currencyDisplayName('USD', 'zh-CN')).toBe('美元')
+  })
+
+  it('XAU has an explicit symbol and no country flag', () => {
+    expect(currencySymbol('XAU')).toBe('XAU')
+  })
+
+  it('XAU uses troy-ounce native unit', () => {
+    expect(xauToGrams(gramsToXau(80))).toBeCloseTo(80, 8)
+    expect(xauToGrams(1)).toBeCloseTo(31.1034768, 8)
   })
 })

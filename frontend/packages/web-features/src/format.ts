@@ -90,6 +90,8 @@ function currencySymbol(code: string): string {
       return 'HK$'
     case 'GBP':
       return '£'
+    case 'XAU':
+      return 'XAU'
     default:
       return ''
   }

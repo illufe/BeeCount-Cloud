@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -133,6 +134,23 @@ def test_list_transactions_empty_ledger(monkeypatch) -> None:
         assert result["ledger"] == "Empty"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_serialize_tx_exposes_ids_currency_native_and_exclude_flags() -> None:
+    row = SimpleNamespace(
+        sync_id="tx-1", tx_type="expense", amount=2.0,
+        happened_at=None, note="n", category_name="Food", account_name="Cash",
+        account_sync_id="acc-1", from_account_name=None, from_account_sync_id=None,
+        to_account_name=None, to_account_sync_id=None, tags_csv="MCP",
+        currency_code="USD", native_amount=15.0,
+        exclude_from_stats=True, exclude_from_budget=True,
+    )
+    result = read_tools._serialize_tx(row, "Food")
+    assert result["account_id"] == "acc-1"
+    assert result["currency_code"] == "USD"
+    assert result["native_amount"] == 15.0
+    assert result["exclude_from_stats"] is True
+    assert result["exclude_from_budget"] is True
 
 
 def test_get_ledger_stats_returns_zero_for_fresh_ledger(monkeypatch) -> None:
@@ -287,5 +305,75 @@ def test_mcp_currency_fields_missing_rate_falls_back_to_amount(monkeypatch) -> N
         ))
         assert fields["currency_code"] == "THB"
         assert fields["native_amount"] == 500.0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_mcp_update_transaction_binds_ledger_and_forwards_xau(monkeypatch) -> None:
+    import asyncio
+    from datetime import datetime, timezone
+
+    from src.mcp.tools import write_tools
+    from src.models import Ledger, ReadTxProjection
+
+    client, sm = _make_client_and_engine(monkeypatch)
+    monkeypatch.setattr(write_tools, "SessionLocal", sm)
+    try:
+        reg = _register(client, email="update-xau@example.com")
+        first_ledger = _make_ledger(client, reg["access_token"], "Gold")
+        other_ledger = _make_ledger(client, reg["access_token"], "Other")
+        user = _fetch_user(sm, "update-xau@example.com")
+        with sm() as db:
+            ledger = db.scalar(select(Ledger).where(Ledger.external_id == first_ledger))
+            assert ledger is not None
+            db.add(ReadTxProjection(
+                ledger_id=ledger.id,
+                sync_id="tx-xau",
+                user_id=user.id,
+                tx_type="expense",
+                amount=2.5,
+                happened_at=datetime.now(timezone.utc),
+            ))
+            db.commit()
+
+        calls: list[tuple[str, str, dict]] = []
+
+        async def fake_self_call(method, path, _user, **kwargs):
+            calls.append((method, path, kwargs["json"]))
+            return {"entity_id": "tx-xau"}
+
+        monkeypatch.setattr(write_tools, "_self_call", fake_self_call)
+        try:
+            asyncio.run(write_tools.update_transaction(
+                user,
+                sync_id="tx-xau",
+                ledger_id=other_ledger,
+                currency_code="XAU",
+                native_amount=77.758692,
+            ))
+        except ValueError as exc:
+            assert "does not match" in str(exc)
+        else:
+            raise AssertionError("cross-ledger update unexpectedly reached self-call")
+        assert calls == []
+
+        asyncio.run(write_tools.update_transaction(
+            user,
+            sync_id="tx-xau",
+            ledger_id=f" {first_ledger} ",
+            amount=2.5,
+            currency_code=" xau ",
+            native_amount=77.758692,
+        ))
+        assert calls == [(
+            "PATCH",
+            f"/api/v1/write/ledgers/{first_ledger}/transactions/tx-xau",
+            {
+                "base_change_id": 0,
+                "amount": 2.5,
+                "currency_code": "XAU",
+                "native_amount": 77.758692,
+            },
+        )]
     finally:
         app.dependency_overrides.clear()
