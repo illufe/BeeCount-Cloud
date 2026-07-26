@@ -514,6 +514,9 @@ async def create_account(
     currency: str | None = None,
     initial_balance: float = 0.0,
     hidden: bool = False,
+    responsible_user_id: str | None = None,
+    reconciliation_month: str | None = None,
+    reconciliation_status: str | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Create an account; ledger_id is always required."""
@@ -524,6 +527,9 @@ async def create_account(
         "currency": currency,
         "initial_balance": initial_balance,
         "hidden": hidden,
+        "responsible_user_id": responsible_user_id,
+        "reconciliation_month": reconciliation_month,
+        "reconciliation_status": reconciliation_status,
         "base_change_id": base_change_id,
     }
     return await _logged_call(
@@ -542,6 +548,9 @@ async def update_account(
     currency: str | None = None,
     initial_balance: float | None = None,
     hidden: bool | None = None,
+    responsible_user_id: str | None = None,
+    reconciliation_month: str | None = None,
+    reconciliation_status: str | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Update an account by account_id; ledger_id is always required."""
@@ -553,6 +562,9 @@ async def update_account(
         "currency": currency,
         "initial_balance": initial_balance,
         "hidden": hidden,
+        "responsible_user_id": responsible_user_id,
+        "reconciliation_month": reconciliation_month,
+        "reconciliation_status": reconciliation_status,
         "base_change_id": base_change_id,
     }
     return await _logged_call(

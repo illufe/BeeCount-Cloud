@@ -394,6 +394,9 @@ def list_accounts(
             bank_name=row.bank_name,
             card_last_four=row.card_last_four,
             hidden=bool(row.hidden),
+            responsible_user_id=row.responsible_user_id,
+            reconciliation_month=row.reconciliation_month,
+            reconciliation_status=row.reconciliation_status,
         )
         for row in rows
     ]
@@ -679,4 +682,3 @@ def list_tags(
         )
         for row in rows
     ]
-

@@ -303,6 +303,12 @@ Web 只在资产主列表和新交易账户选择器过滤隐藏账户；折叠�
 编辑旧交易时必须保留该交易已引用的隐藏账户。新增或修改 account payload 字段时，
 同步检查 mobile、server 和 Web 三端映射。
 
+账户的 `responsibleUserId`、`reconciliationMonth`、
+`reconciliationStatus` 是 user-global account metadata，不改变账户余额、统计、
+净资产或其它会计口径。mobile 的 partial/full account push 未携带这些字段时，server
+必须保留 projection 现值；显式 `null` 或空字符串表示清空。`reconciliationStatus`
+只允许 `pending`、`imported`、`reconciled`、`blocked`，月份只允许 `YYYY-MM`。
+
 ---
 
 ## 5. WebSocket 实时推送

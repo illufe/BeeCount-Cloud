@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -32,6 +33,8 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+_RECONCILIATION_STATUSES = {"pending", "imported", "reconciled", "blocked"}
+_RECONCILIATION_MONTH_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
 
 # --------------------------------------------------------------------------- #
@@ -324,6 +327,22 @@ def upsert_account(
         except (TypeError, ValueError):
             return None
 
+    def _reconciliation_month(raw: Any) -> str | None:
+        value = _as_str(raw)
+        if value is None:
+            return None
+        if not _RECONCILIATION_MONTH_RE.fullmatch(value):
+            raise ValueError("reconciliation_month must use YYYY-MM with month 01-12")
+        return value
+
+    def _reconciliation_status(raw: Any) -> str | None:
+        value = _as_str(raw)
+        if value is None:
+            return None
+        if value not in _RECONCILIATION_STATUSES:
+            raise ValueError("reconciliation_status must be pending/imported/reconciled/blocked")
+        return value
+
     values = {
         "user_id": user_id,
         "sync_id": sync_id,
@@ -338,6 +357,9 @@ def upsert_account(
         "bank_name": _as_str(payload.get("bankName")),
         "card_last_four": _as_str(payload.get("cardLastFour")),
         "hidden": _as_bool(payload.get("hidden"), default=False),
+        "responsible_user_id": _as_str(payload.get("responsibleUserId")),
+        "reconciliation_month": _reconciliation_month(payload.get("reconciliationMonth")),
+        "reconciliation_status": _reconciliation_status(payload.get("reconciliationStatus")),
         "source_change_id": source_change_id,
     }
     _upsert(db, UserAccountProjection, ("user_id", "sync_id"), values)

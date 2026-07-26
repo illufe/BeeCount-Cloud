@@ -131,6 +131,9 @@ _USER_MERGE_SPECS: dict[str, _MergeSpec] = {
         ("bankName", "bank_name"),
         ("cardLastFour", "card_last_four"),
         ("hidden", "hidden"),
+        ("responsibleUserId", "responsible_user_id"),
+        ("reconciliationMonth", "reconciliation_month"),
+        ("reconciliationStatus", "reconciliation_status"),
     ]),
     "exchange_rate_override": _MergeSpec(UserExchangeRateProjection, [
         ("syncId", "sync_id"),
@@ -429,7 +432,13 @@ def _merge_from_spec(spec: _MergeSpec, existing, payload: dict) -> dict:
         if transform is not None:
             value = transform(value)
         base[payload_key] = value
-    return {**base, **{k: v for k, v in payload.items() if v is not None}}
+    merged = {**base, **{k: v for k, v in payload.items() if v is not None}}
+    # These fields deliberately support explicit null/empty-string clearing while
+    # omitted keys still retain the projection value for mobile partial pushes.
+    for key in ("responsibleUserId", "reconciliationMonth", "reconciliationStatus") if spec.model is UserAccountProjection else ():
+        if key in payload:
+            merged[key] = payload[key]
+    return merged
 
 
 def _sync_native_amount_after_merge(existing, payload: dict, merged: dict) -> dict:

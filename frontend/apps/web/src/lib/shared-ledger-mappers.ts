@@ -57,6 +57,9 @@ export function sharedAccountToReadAccount(a: SharedAccountItem): ReadAccount {
     bank_name: a.bank_name,
     card_last_four: a.card_last_four,
     hidden: a.hidden,
+    responsible_user_id: a.responsible_user_id,
+    reconciliation_month: a.reconciliation_month,
+    reconciliation_status: a.reconciliation_status,
   }
 }
 

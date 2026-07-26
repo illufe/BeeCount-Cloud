@@ -18,7 +18,7 @@ import {
   useT
 } from '@beecount/ui'
 
-import type { ReadAccount } from '@beecount/api-client'
+import type { LedgerMember, ReadAccount } from '@beecount/api-client'
 
 import { Amount } from '../components/Amount'
 import { CurrencySelectorTrigger } from '../components/CurrencySelector'
@@ -50,6 +50,7 @@ type MobileStyleAssetsProps = {
   /** true 时跳过多币种「每币种一张卡」网格区(折算汇总视图接管了多币种展示);
    *  账户列表/新建按钮等其余内容照常。缺省 false —— 其它调用方零影响。 */
   hideCurrencyCards?: boolean
+  members?: LedgerMember[]
 }
 
 /**
@@ -66,7 +67,8 @@ function MobileStyleAssets({
   onDelete,
   onClickAccount,
   onCreate,
-  hideCurrencyCards = false
+  hideCurrencyCards = false,
+  members = []
 }: MobileStyleAssetsProps) {
   const t = useT()
   // 多币种 → 每币种一张卡;单币种 → 维持原 hero + 饼图。底部列表小计是否带币种
@@ -193,6 +195,9 @@ function MobileStyleAssets({
                       onEdit={() => onEdit(row)}
                       onDelete={onDelete ? () => onDelete(row) : undefined}
                       onClick={onClickAccount ? () => onClickAccount(row) : undefined}
+                      responsibleLabel={members.find((member) => member.user_id === row.responsible_user_id)?.display_name
+                        || members.find((member) => member.user_id === row.responsible_user_id)?.email
+                        || (row.responsible_user_id ? row.responsible_user_id.slice(0, 6) : undefined)}
                     />
                   ))}
                 </div>
@@ -426,7 +431,8 @@ function BankCardTile({
   canManage,
   onEdit,
   onDelete,
-  onClick
+  onClick,
+  responsibleLabel
 }: {
   row: ReadAccount & AccountStats
   color: string
@@ -435,6 +441,7 @@ function BankCardTile({
   onEdit: () => void
   onDelete?: () => void
   onClick?: () => void
+  responsibleLabel?: string
 }) {
   const t = useT()
   const currency = row.currency || 'CNY'
@@ -530,7 +537,16 @@ function BankCardTile({
           <span className="shrink-0 rounded bg-white/25 px-1 py-[1px] text-[9px] font-semibold tracking-wider">
             {currency}
           </span>
+          <span className="max-w-[72px] truncate rounded bg-white/20 px-1 py-[1px] text-[9px]" title={responsibleLabel || undefined}>
+            {responsibleLabel || t('accounts.responsible.unassigned')}
+          </span>
         </div>
+        {(row.reconciliation_month || row.reconciliation_status) ? (
+          <div className="mt-1 flex gap-1 truncate text-[9px] text-white/80">
+            {row.reconciliation_month ? <span>{row.reconciliation_month}</span> : null}
+            {row.reconciliation_status ? <span>{t(`accounts.reconciliation.status.${row.reconciliation_status}`)}</span> : null}
+          </div>
+        ) : null}
 
         {/* 正文：按类型切换布局 */}
         {isValuation ? (
@@ -889,6 +905,7 @@ type AccountsPanelProps = {
   /** true 时跳过多币种「每币种一张卡」网格区(用于折算汇总视图);缺省 false,
    *  其它调用方零影响。详见 MobileStyleAssets。 */
   hideCurrencyCards?: boolean
+  members?: LedgerMember[]
 }
 
 export function AccountsPanel({
@@ -902,7 +919,8 @@ export function AccountsPanel({
   onEdit,
   onDelete,
   onClickAccount,
-  hideCurrencyCards = false
+  hideCurrencyCards = false,
+  members = []
 }: AccountsPanelProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -977,6 +995,7 @@ export function AccountsPanel({
           onClickAccount={onClickAccount}
           onCreate={handleOpenCreate}
           hideCurrencyCards={hideCurrencyCards}
+          members={members}
         />
       )}
 
@@ -1182,6 +1201,32 @@ export function AccountsPanel({
                 value={form.note}
                 onChange={(e) => onFormChange({ ...form, note: e.target.value })}
               />
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="space-y-1">
+                <Label>{t('accounts.responsible.label')}</Label>
+                <Select value={form.responsible_user_id || 'unassigned'} onValueChange={(value) => onFormChange({ ...form, responsible_user_id: value === 'unassigned' ? '' : value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unassigned">{t('accounts.responsible.unassigned')}</SelectItem>
+                    {members.map((member) => <SelectItem key={member.user_id} value={member.user_id}>{member.display_name || member.email}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>{t('accounts.reconciliation.month')}</Label>
+                <Input type="month" value={form.reconciliation_month} onChange={(e) => onFormChange({ ...form, reconciliation_month: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>{t('accounts.reconciliation.status.label')}</Label>
+                <Select value={form.reconciliation_status || 'unset'} onValueChange={(value) => onFormChange({ ...form, reconciliation_status: value === 'unset' ? '' : value as AccountForm['reconciliation_status'] })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unset">{t('accounts.reconciliation.status.unset')}</SelectItem>
+                    {(['pending', 'imported', 'reconciled', 'blocked'] as const).map((status) => <SelectItem key={status} value={status}>{t(`accounts.reconciliation.status.${status}`)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
           <DialogFooter>

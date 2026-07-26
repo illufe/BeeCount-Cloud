@@ -562,6 +562,9 @@ class ReadAccountOut(BaseModel):
     bank_name: str | None = None
     card_last_four: str | None = None
     hidden: bool = False
+    responsible_user_id: str | None = None
+    reconciliation_month: str | None = None
+    reconciliation_status: Literal["pending", "imported", "reconciled", "blocked"] | None = None
 
 
 class ReadCategoryOut(BaseModel):
@@ -858,6 +861,9 @@ class WriteAccountCreateRequest(WriteBaseRequest):
     bank_name: str | None = None
     card_last_four: str | None = Field(default=None, max_length=8)
     hidden: bool = False
+    responsible_user_id: str | None = None
+    reconciliation_month: str | None = Field(default=None, pattern=r"^(?:\d{4}-(?:0[1-9]|1[0-2]))?$")
+    reconciliation_status: Literal["pending", "imported", "reconciled", "blocked", ""] | None = None
 
 
 class WriteAccountUpdateRequest(WriteBaseRequest):
@@ -872,6 +878,9 @@ class WriteAccountUpdateRequest(WriteBaseRequest):
     bank_name: str | None = None
     card_last_four: str | None = Field(default=None, max_length=8)
     hidden: bool | None = None
+    responsible_user_id: str | None = None
+    reconciliation_month: str | None = Field(default=None, pattern=r"^(?:\d{4}-(?:0[1-9]|1[0-2]))?$")
+    reconciliation_status: Literal["pending", "imported", "reconciled", "blocked", ""] | None = None
 
 
 class WriteBudgetCreateRequest(WriteBaseRequest):

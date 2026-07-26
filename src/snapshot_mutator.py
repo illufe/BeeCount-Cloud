@@ -101,6 +101,9 @@ _ACCOUNT_OPTIONAL_FIELD_MAP: tuple[tuple[str, str, str], ...] = (
     ("payment_due_day", "paymentDueDay", "int"),
     ("bank_name", "bankName", "str"),
     ("card_last_four", "cardLastFour", "str"),
+    ("responsible_user_id", "responsibleUserId", "str"),
+    ("reconciliation_month", "reconciliationMonth", "str"),
+    ("reconciliation_status", "reconciliationStatus", "str"),
 )
 
 

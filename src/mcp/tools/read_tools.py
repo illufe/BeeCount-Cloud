@@ -296,6 +296,9 @@ def list_accounts(
                 "billing_day": r.billing_day,
                 "payment_due_day": r.payment_due_day,
                 "hidden": bool(r.hidden),
+                "responsible_user_id": r.responsible_user_id,
+                "reconciliation_month": r.reconciliation_month,
+                "reconciliation_status": r.reconciliation_status,
                 "balance": float(r.initial_balance or 0) + float(stats.get(r.sync_id, {}).get("balance", 0.0)),
                 "transaction_count": int(stats.get(r.sync_id, {}).get("transaction_count", 0)),
                 "last_transaction_at": (
