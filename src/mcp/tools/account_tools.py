@@ -38,6 +38,9 @@ async def create_account(
     currency: str | None = None,
     initial_balance: float = 0.0,
     hidden: bool = False,
+    responsible_user_id: str | None = None,
+    reconciliation_month: str | None = None,
+    reconciliation_status: str | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Create an account in an explicitly selected ledger."""
@@ -58,6 +61,11 @@ async def create_account(
         body["account_type"] = account_type
     if currency is not None:
         body["currency"] = currency
+    for key, value in (("responsible_user_id", responsible_user_id),
+                       ("reconciliation_month", reconciliation_month),
+                       ("reconciliation_status", reconciliation_status)):
+        if value is not None:
+            body[key] = value
     path = f"{get_settings().api_prefix}/write/ledgers/{ledger.external_id}/accounts"
     result = await _self_call(
         "POST", path, user, internal_scopes=[SCOPE_WEB_WRITE], json=body
@@ -71,6 +79,9 @@ async def create_account(
         "currency": currency,
         "initial_balance": float(initial_balance),
         "hidden": bool(hidden),
+        "responsible_user_id": responsible_user_id,
+        "reconciliation_month": reconciliation_month,
+        "reconciliation_status": reconciliation_status,
         "_meta": result,
     }
 
@@ -85,12 +96,16 @@ async def update_account(
     currency: str | None = None,
     initial_balance: float | None = None,
     hidden: bool | None = None,
+    responsible_user_id: str | None = None,
+    reconciliation_month: str | None = None,
+    reconciliation_status: str | None = None,
     base_change_id: int = 0,
 ) -> dict[str, Any]:
     """Update an account by explicit account id."""
     ledger_id = _require_id("ledger_id", ledger_id)
     account_id = _require_id("account_id", account_id)
-    if all(value is None for value in (name, account_type, currency, initial_balance, hidden)):
+    if all(value is None for value in (name, account_type, currency, initial_balance, hidden,
+                                       responsible_user_id, reconciliation_month, reconciliation_status)):
         raise ValueError("at least one account field is required")
     ledger, status = _resolve_account_ledger(user, ledger_id)
     if status is not None:
@@ -104,6 +119,9 @@ async def update_account(
         ("currency", currency),
         ("initial_balance", initial_balance),
         ("hidden", hidden),
+        ("responsible_user_id", responsible_user_id),
+        ("reconciliation_month", reconciliation_month),
+        ("reconciliation_status", reconciliation_status),
     ):
         if value is not None:
             body[key] = value

@@ -16,7 +16,7 @@ from src.database import Base, get_db
 from src.main import app
 from src.mcp import server
 from src.mcp.tools import account_tools, read_tools
-from src.models import Ledger, ReadTxProjection, User
+from src.models import Ledger, ReadTxProjection, User, UserAccountProjection
 from src.security import SCOPE_MCP_ACCOUNT_WRITE, SCOPE_MCP_WRITE
 
 
@@ -90,6 +90,9 @@ def test_account_tools_crud_and_delete_confirmation(monkeypatch) -> None:
                 name="Cash",
                 account_type="cash",
                 currency="CNY",
+                responsible_user_id=user.id,
+                reconciliation_month="2026-07",
+                reconciliation_status="pending",
             )
         )
         assert created["status"] == "created"
@@ -122,6 +125,44 @@ def test_account_tools_crud_and_delete_confirmation(monkeypatch) -> None:
             )
         )
         assert read_tools.list_accounts(user)[0]["hidden"] is False
+        assert read_tools.list_accounts(user)[0]["responsible_user_id"] == user.id
+        assert read_tools.list_accounts(user)[0]["reconciliation_month"] == "2026-07"
+        assert read_tools.list_accounts(user)[0]["reconciliation_status"] == "pending"
+
+        asyncio.run(account_tools.update_account(
+            user,
+            ledger_id=ledger_id,
+            account_id=account_id,
+            responsible_user_id="",
+            reconciliation_month="",
+            reconciliation_status="",
+        ))
+        cleared = read_tools.list_accounts(user)[0]
+        assert cleared["responsible_user_id"] is None
+        assert cleared["reconciliation_month"] is None
+        assert cleared["reconciliation_status"] is None
+
+        with Session() as db:
+            projection_row = db.scalar(select(UserAccountProjection).where(
+                UserAccountProjection.sync_id == account_id,
+                UserAccountProjection.user_id == user.id,
+            ))
+            assert projection_row is not None
+            assert projection_row.billing_day is None
+            assert projection_row.payment_due_day is None
+
+        rejected = client.patch(
+            f"/api/v1/write/ledgers/{ledger_id}/accounts/{account_id}",
+            headers={"Authorization": f"Bearer {auth['access_token']}", "X-Device-ID": "pytest-web"},
+            json={"base_change_id": 0, "responsible_user_id": str(uuid4())},
+        )
+        assert rejected.status_code == 400, rejected.text
+        invalid_month = client.patch(
+            f"/api/v1/write/ledgers/{ledger_id}/accounts/{account_id}",
+            headers={"Authorization": f"Bearer {auth['access_token']}", "X-Device-ID": "pytest-web"},
+            json={"base_change_id": 0, "reconciliation_month": "2026-13"},
+        )
+        assert invalid_month.status_code == 422, invalid_month.text
 
         with Session() as db:
             ledger = db.scalar(select(Ledger).where(Ledger.external_id == ledger_id))

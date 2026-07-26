@@ -7,6 +7,7 @@ import {
   fetchExchangeRateOverrides,
   fetchExchangeRates,
   fetchNetWorthHistory,
+  fetchLedgerMembers,
   fetchWorkspaceAccounts,
   fetchWorkspaceTags,
   fetchWorkspaceTransactions,
@@ -18,6 +19,7 @@ import {
   type WorkspaceAccount,
   type WorkspaceTag,
   type WorkspaceTransaction,
+  type LedgerMember,
 } from '@beecount/api-client'
 import {
   Button,
@@ -99,6 +101,11 @@ export function AccountsPage() {
   // confirm dialog 直接读它,不再发额外请求。
   const [pendingDelete, setPendingDelete] = useState<WorkspaceAccount | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [members, setMembers] = useState<LedgerMember[]>([])
+  const [responsibleFilter, setResponsibleFilter] = useState('all')
+  useEffect(() => {
+    setResponsibleFilter('all')
+  }, [activeLedgerId])
 
   // 分币种明细 dialog(折算汇总卡的「详情」入口;单币种时该卡不出详情按钮)。
   const [detailOpen, setDetailOpen] = useState(false)
@@ -150,16 +157,18 @@ export function AccountsPage() {
   const refresh = useCallback(async () => {
     try {
       const tzOffsetMinutes = -new Date().getTimezoneOffset()
-      const [accountRows, tagRows, history] = await Promise.all([
+      const [accountRows, tagRows, history, ledgerMembers] = await Promise.all([
         fetchWorkspaceAccounts(token, { limit: 500 }),
         fetchWorkspaceTags(token, { limit: 500 }),
         // 净值趋势是全局资产(账户为 user-global、跨所有账本),绝不按当前账本过滤 ——
         // 否则切到无交易的账本时趋势会空,而净资产卡(全局账户余额)仍有数据,口径不一致。
         fetchNetWorthHistory(token, { tzOffsetMinutes }).catch(() => null),
+        activeLedgerId ? fetchLedgerMembers(token, activeLedgerId).catch(() => [] as LedgerMember[]) : Promise.resolve([] as LedgerMember[]),
       ])
       setRows(accountRows)
       setTags(tagRows)
       setNetWorthHistory(history)
+      setMembers(ledgerMembers)
 
       // 只有"主币种存在 + 账户涉及 ≥2 种币种"才需要折算卡。其余情况清空缓存,
       // 让卡不渲染。汇率请求任一失败置 null,不影响账户列表正常展示。
@@ -259,6 +268,9 @@ export function AccountsPage() {
         bank_name: isBankOrCredit ? form.bank_name.trim() || null : null,
         card_last_four: isBankOrCredit ? form.card_last_four.trim() || null : null,
         hidden: form.hidden,
+        responsible_user_id: form.responsible_user_id || null,
+        reconciliation_month: form.reconciliation_month || null,
+        reconciliation_status: form.reconciliation_status || null,
       }
       await retryOnConflict(activeLedgerId, (base) =>
         form.editingId
@@ -279,6 +291,12 @@ export function AccountsPage() {
       return false
     }
   }
+
+  const filteredRows = useMemo(() => {
+    if (responsibleFilter === 'all') return rows
+    if (responsibleFilter === 'unassigned') return rows.filter((row) => !row.responsible_user_id)
+    return rows.filter((row) => row.responsible_user_id === responsibleFilter)
+  }, [rows, responsibleFilter])
 
 
   // 删除流程:点删除按钮 → 弹 ConfirmDialog,dialog 里根据 tx_count 决定文案。
@@ -517,9 +535,29 @@ export function AccountsPage() {
           </CardContent>
         </Card>
       )}
+      <div className="mb-3 flex items-center gap-2">
+        <label htmlFor="accounts-responsible-filter" className="text-xs text-muted-foreground">
+          {t('accounts.responsible.filter')}
+        </label>
+        <select
+          id="accounts-responsible-filter"
+          value={responsibleFilter}
+          onChange={(event) => setResponsibleFilter(event.target.value)}
+          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+        >
+          <option value="all">{t('accounts.responsible.all')}</option>
+          {members.map((member) => (
+            <option key={member.user_id} value={member.user_id}>
+              {member.display_name || member.email}
+            </option>
+          ))}
+          <option value="unassigned">{t('accounts.responsible.unassigned')}</option>
+        </select>
+      </div>
       <AccountsPanel
         form={form}
-        rows={rows}
+        rows={filteredRows}
+        members={members}
         canManage
         hideCurrencyCards
         onFormChange={setForm}
@@ -546,6 +584,9 @@ export function AccountsPage() {
             bank_name: row.bank_name ?? '',
             card_last_four: row.card_last_four ?? '',
             hidden: Boolean(row.hidden),
+            responsible_user_id: row.responsible_user_id ?? '',
+            reconciliation_month: row.reconciliation_month ?? '',
+            reconciliation_status: row.reconciliation_status ?? '',
           })
         }}
         onClickAccount={(row) =>

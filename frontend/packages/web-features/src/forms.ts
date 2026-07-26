@@ -46,6 +46,9 @@ export type AccountForm = {
   /** 卡号后四位,bank_card / credit_card 元信息。 */
   card_last_four: string
   hidden: boolean
+  responsible_user_id: string
+  reconciliation_month: string
+  reconciliation_status: 'pending' | 'imported' | 'reconciled' | 'blocked' | ''
 }
 
 export type CategoryForm = {
@@ -124,6 +127,9 @@ export const accountDefaults = (): AccountForm => ({
   bank_name: '',
   card_last_four: '',
   hidden: false,
+  responsible_user_id: '',
+  reconciliation_month: '',
+  reconciliation_status: '',
 })
 
 export const categoryDefaults = (): CategoryForm => ({

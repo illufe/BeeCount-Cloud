@@ -1165,6 +1165,18 @@ def _prepare_write(
         ledger_external_id=ledger_external_id,
         roles=required_roles,
     )
+    if "/accounts" in path and "responsible_user_id" in payload:
+        responsible_user_id = str(payload.get("responsible_user_id") or "").strip()
+        if responsible_user_id:
+            member = db.scalar(select(LedgerMember).where(
+                LedgerMember.ledger_id == ledger.id,
+                LedgerMember.user_id == responsible_user_id,
+            ))
+            if member is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="responsible_user_id must be a current ledger member",
+                )
     if not idempotency_key:
         return ledger, None
     _purge_expired_idempotency(db)

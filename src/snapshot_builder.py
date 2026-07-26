@@ -154,6 +154,9 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
         UserAccountProjection.bank_name,
         UserAccountProjection.card_last_four,
         UserAccountProjection.hidden,
+        UserAccountProjection.responsible_user_id,
+        UserAccountProjection.reconciliation_month,
+        UserAccountProjection.reconciliation_status,
     ).where(UserAccountProjection.user_id == user_id)
     for (
         sid,
@@ -168,6 +171,9 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
         bank_name,
         card_last_four,
         hidden,
+        responsible_user_id,
+        reconciliation_month,
+        reconciliation_status,
     ) in db.execute(acc_stmt).all():
         acc: dict[str, Any] = {"syncId": sid, "name": name or ""}
         if acc_type:
@@ -189,6 +195,12 @@ def build(db: Session, ledger: Ledger) -> dict[str, Any]:
         if card_last_four:
             acc["cardLastFour"] = card_last_four
         acc["hidden"] = bool(hidden)
+        if responsible_user_id:
+            acc["responsibleUserId"] = responsible_user_id
+        if reconciliation_month:
+            acc["reconciliationMonth"] = reconciliation_month
+        if reconciliation_status:
+            acc["reconciliationStatus"] = reconciliation_status
         accounts.append(acc)
 
     # Categories —— 同 accounts,user-global per-user。

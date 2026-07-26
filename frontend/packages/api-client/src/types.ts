@@ -230,6 +230,9 @@ export type ReadAccount = {
   /** 卡号后四位,bank_card / credit_card。 */
   card_last_four?: string | null
   hidden?: boolean
+  responsible_user_id?: string | null
+  reconciliation_month?: string | null
+  reconciliation_status?: 'pending' | 'imported' | 'reconciled' | 'blocked' | null
 }
 
 export type ReadCategory = {
@@ -595,6 +598,9 @@ export type AccountPayload = {
   bank_name?: string | null
   card_last_four?: string | null
   hidden?: boolean
+  responsible_user_id?: string | null
+  reconciliation_month?: string | null
+  reconciliation_status?: 'pending' | 'imported' | 'reconciled' | 'blocked' | null
 }
 
 export type CategoryPayload = {
@@ -693,6 +699,9 @@ export type SharedAccountItem = {
   bank_name: string | null
   card_last_four: string | null
   hidden?: boolean
+  responsible_user_id?: string | null
+  reconciliation_month?: string | null
+  reconciliation_status?: 'pending' | 'imported' | 'reconciled' | 'blocked' | null
 }
 
 export type SharedTagItem = {

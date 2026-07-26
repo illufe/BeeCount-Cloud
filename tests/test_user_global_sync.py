@@ -146,6 +146,35 @@ def test_user_global_push_account_and_tag_too():
         app.dependency_overrides.clear()
 
 
+def test_mobile_push_account_partial_preserves_responsibility_and_extra_fields():
+    client, TS = _make_client()
+    try:
+        tok = _login(client, "ug-account-partial@t.com")
+        hdr = {"Authorization": f"Bearer {tok}"}
+        _push(client, hdr, "lg1", "account", "acc-partial", {
+            "syncId": "acc-partial", "name": "Cash", "type": "cash",
+            "currency": "CNY", "billingDay": 12, "paymentDueDay": 20,
+            "responsibleUserId": "member-1", "reconciliationMonth": "2026-07",
+            "reconciliationStatus": "pending",
+        })
+        _push(client, hdr, "lg1", "account", "acc-partial", {
+            "syncId": "acc-partial", "name": "Cash Updated",
+        })
+        with TS() as db:
+            row = db.scalar(select(UserAccountProjection).where(
+                UserAccountProjection.sync_id == "acc-partial"
+            ))
+            assert row is not None
+            assert row.name == "Cash Updated"
+            assert row.billing_day == 12
+            assert row.payment_due_day == 20
+            assert row.responsible_user_id == "member-1"
+            assert row.reconciliation_month == "2026-07"
+            assert row.reconciliation_status == "pending"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_user_global_push_ledger_id_field_ignored_when_set():
     """老 mobile 发 category 时仍带 ledger_id(借车协议),server 应该忽略,
     强制按 entity_type 走 user-scope 路径,SyncChange.ledger_id 落 NULL。"""

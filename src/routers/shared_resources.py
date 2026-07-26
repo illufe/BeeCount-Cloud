@@ -63,6 +63,9 @@ class SharedAccountItem(BaseModel):
     bank_name: str | None
     card_last_four: str | None
     hidden: bool = False
+    responsible_user_id: str | None = None
+    reconciliation_month: str | None = None
+    reconciliation_status: str | None = None
 
 
 class SharedTagItem(BaseModel):
@@ -146,6 +149,9 @@ def get_shared_resources(
                 bank_name=a.bank_name,
                 card_last_four=a.card_last_four,
                 hidden=bool(a.hidden),
+                responsible_user_id=a.responsible_user_id,
+                reconciliation_month=a.reconciliation_month,
+                reconciliation_status=a.reconciliation_status,
             )
             for a in accts
         ],
