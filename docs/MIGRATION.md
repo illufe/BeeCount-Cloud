@@ -19,6 +19,9 @@ This includes:
   - snapshot schema v2 (`items/accounts/categories/tags` include `syncId`)
 - Backup channel extension:
   - backup artifact metadata table `backup_artifacts`
+- Account visibility extension:
+  - migration `0019_account_hidden`
+  - user-global projection field `user_account_projection.hidden`
 
 ## Rollback
 

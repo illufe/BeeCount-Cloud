@@ -20,6 +20,7 @@
   - LWW 冲突决胜规则
   - rename cascade 在 push / write 两条路径上的实现
   - 增量 push 的 merge 字段语义
+  - account `hidden` 的 user-global 跨层保留和 UI-only 语义
   - change_id 单调性
   - `lock_ledger_for_materialize` 锁粒度
 - debug 清单 + 修改前自检清单
@@ -97,6 +98,10 @@ Mobile 端(Flutter)和 Web 端(React)各自有仓,各自有 CLAUDE.md:
 跟服务端同步相关的 mobile 契约(`ChangeTracker.recordUserGlobalChange` /
 `recordLedgerChange`)在 mobile 仓 CLAUDE.md 里。Server 端的契约在上面
 链的 `docs/SYNC_ARCHITECTURE.md` 里。
+
+账户 `hidden` 必须贯穿 projection、snapshot、共享资源、MCP 和 Web；后端
+统计、余额和净资产不能据此过滤。Web 只在资产主列表和新交易选择器隐藏账户，
+并保留恢复入口和旧交易编辑所需的已引用账户。
 
 ## 工具
 

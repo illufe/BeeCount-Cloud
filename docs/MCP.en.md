@@ -186,7 +186,7 @@ PAT and access tokens are strictly partitioned: **PATs only work against `/api/v
 | `list_transactions` | Query transactions, multi-dim filter | date_from/to, category, account, q, limit |
 | `get_transaction` | Single transaction detail | sync_id |
 | `list_categories` | List categories | kind |
-| `list_accounts` | List accounts | account_type |
+| `list_accounts` | List accounts with live balance/activity | account_id, account_type |
 | `list_tags` | List tags | — |
 | `list_budgets` | Budgets + current-month progress | ledger_id |
 | `get_ledger_stats` | Ledger stats | ledger_id |
@@ -209,11 +209,16 @@ PAT and access tokens are strictly partitioned: **PATs only work against `/api/v
 
 | Tool | Purpose | Key args |
 |---|---|---|
-| `create_account` | Create an account | ledger_id, name, account_type, currency, initial_balance |
-| `update_account` | Edit an account | ledger_id, account_id + at least one field |
+| `create_account` | Create an account | ledger_id, name, account_type, currency, initial_balance, hidden |
+| `update_account` | Edit an account | ledger_id, account_id + at least one field (including hidden) |
 | `delete_account` | Delete an unlinked account (**two-step confirm**) | ledger_id, account_id, confirm |
 
-Account tools always require an explicit `ledger_id`; update and delete locate accounts by `account_id`, never by guessed name.
+Account tools always require an explicit `ledger_id`; update and delete locate
+accounts by `account_id`, never by guessed name. `list_accounts(account_id=...)`
+provides an exact readback with `hidden`, live `balance`, `transaction_count`,
+`last_transaction_at`, and `source_change_id`. `hidden` changes UI visibility
+only; it does not remove history or exclude the account from balances,
+analytics, or net worth.
 
 ---
 

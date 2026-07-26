@@ -1,7 +1,7 @@
 # BeeCount Cloud &nbsp; [中文](./README.md)
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/sunxiao0721/beecount-cloud)](https://hub.docker.com/r/sunxiao0721/beecount-cloud)
-[![License](https://img.shields.io/badge/license-BSL-blue)](./LICENSE)
+![License](https://img.shields.io/badge/license-BSL-blue)
 
 **Self-hosted sync cloud for the [BeeCount](https://github.com/TNT-Likely/BeeCount) personal accounting app.** Keep iOS / Android / Web books on one ledger you fully own — no ads, no subscription, no third-party lock-in.
 
@@ -69,6 +69,7 @@
 ### Web Console
 
 - Full bookkeeping UI (transactions / accounts / categories / tags / budgets)
+- Hide inactive accounts without removing history, analytics, or net worth; restore them at any time
 - Interactive dashboard (mobile-like, responsive)
 - **⌘K command palette + AI doc Q&A** — ⌘K (macOS) / Ctrl+K from anywhere; type `?xxx` or pick "Ask AI" to RAG-retrieve from official docs and stream an answer using your App-configured LLM, with source links auto-attached
 - **PWA support** — Click the install icon in your browser's address bar to install as a desktop app; works offline with cached data
@@ -340,7 +341,7 @@ This project uses the **Business Source License (BSL)**.
 - Providing paid cloud services based on this software
 - Reselling or integrating into a paid product
 
-For commercial licensing, contact via [GitHub Issues](https://github.com/TNT-Likely/BeeCount-Cloud/issues). See [LICENSE](./LICENSE).
+For commercial licensing, contact via [GitHub Issues](https://github.com/TNT-Likely/BeeCount-Cloud/issues).
 
 ---
 

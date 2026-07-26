@@ -293,6 +293,16 @@ existing 补回的旧 `nativeAmount` 会与新 amount 失配 → 后处理按该
 
 锁粒度是 ledger,不阻塞跨账本并发写。
 
+### 4.8 account hidden
+
+`hidden` 是 user-global account payload 的展示字段，必须通过增量 merge、
+projection、snapshot、共享资源和 MCP 原样保留。它不改变账户身份或会计口径：
+后端余额、统计、净资产和历史查询不得按 `hidden` 过滤。
+
+Web 只在资产主列表和新交易账户选择器过滤隐藏账户；折叠管理区必须允许恢复，
+编辑旧交易时必须保留该交易已引用的隐藏账户。新增或修改 account payload 字段时，
+同步检查 mobile、server 和 Web 三端映射。
+
 ---
 
 ## 5. WebSocket 实时推送

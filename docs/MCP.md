@@ -184,7 +184,7 @@ PAT 跟 access token 严格分流:**PAT 只能用在 `/api/v1/mcp`**,所有其�
 | `list_transactions` | 查交易,多维筛选 | date_from/to, category, account, q, limit |
 | `get_transaction` | 单条交易详情 | sync_id |
 | `list_categories` | 列分类 | kind |
-| `list_accounts` | 列账户 | account_type |
+| `list_accounts` | 列账户及实时余额/活动 | account_id, account_type |
 | `list_tags` | 列标签 | — |
 | `list_budgets` | 列预算 + 当月进度 | ledger_id |
 | `get_ledger_stats` | 账本统计 | ledger_id |
@@ -207,11 +207,15 @@ PAT 跟 access token 严格分流:**PAT 只能用在 `/api/v1/mcp`**,所有其�
 
 | Tool | 用途 | 关键参数 |
 |---|---|---|
-| `create_account` | 新建账户 | ledger_id, name, account_type, currency, initial_balance |
-| `update_account` | 修改账户 | ledger_id, account_id + 至少一个待改字段 |
+| `create_account` | 新建账户 | ledger_id, name, account_type, currency, initial_balance, hidden |
+| `update_account` | 修改账户 | ledger_id, account_id + 至少一个待改字段(含 hidden) |
 | `delete_account` | 删除无交易账户(**二次确认**) | ledger_id, account_id, confirm |
 
-账户工具始终要求显式 `ledger_id`;修改和删除按 `account_id` 定位,不按名称猜测。账户删除第一次调用只返回 `confirmation_required`,只有用户明确同意后才能再次传 `confirm=true`。
+账户工具始终要求显式 `ledger_id`;修改和删除按 `account_id` 定位,不按名称猜测。
+`list_accounts(account_id=...)` 可用于精确回读，并返回 `hidden`、实时 `balance`、
+`transaction_count`、`last_transaction_at` 和 `source_change_id`。`hidden` 只改变
+界面可见性，不删除历史，也不排除余额、统计或净资产。账户删除第一次调用只返回
+`confirmation_required`,只有用户明确同意后才能再次传 `confirm=true`。
 
 ### 批量导入约束
 

@@ -97,8 +97,11 @@ docker compose up -d --build
 curl -fsS http://127.0.0.1:8869/ready
 ```
 
-The account MCP change uses the existing PAT `scopes_json` field, so it does
-not require a database migration. After deployment, verify that `tools/list`
-contains `create_account`, `update_account`, and `delete_account`, then create
-an `mcp:account_write` PAT in Web settings. Do not use a PAT against ordinary
-REST routes.
+The account MCP scope uses the existing PAT `scopes_json` field. Account
+visibility additionally requires Alembic revision `0019_account_hidden`, which
+adds `user_account_projection.hidden`; run `alembic upgrade head` before
+starting the new image. After deployment, verify that `tools/list` contains
+`create_account`, `update_account`, and `delete_account`, and that
+`list_accounts` returns `hidden`, live balance, transaction count, and latest
+activity. Then create an `mcp:account_write` PAT in Web settings. Do not use a
+PAT against ordinary REST routes.

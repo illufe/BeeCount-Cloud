@@ -1,7 +1,7 @@
 # BeeCount Cloud &nbsp; [English](./README.en.md)
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/sunxiao0721/beecount-cloud)](https://hub.docker.com/r/sunxiao0721/beecount-cloud)
-[![License](https://img.shields.io/badge/license-BSL-blue)](./LICENSE)
+![License](https://img.shields.io/badge/license-BSL-blue)
 
 **[BeeCount(蜜蜂记账)](https://github.com/TNT-Likely/BeeCount) App 的自部署同步云端。** 让 iOS / Android / Web 三端共用一份完全属于你的账本 — 无广告、无订阅、无第三方依赖。
 
@@ -69,6 +69,7 @@
 ### Web 控制台
 
 - 完整记账 UI(交易 / 账户 / 分类 / 标签 / 预算)
+- 可隐藏闲置账户；隐藏账户仍保留历史并参与统计和净资产，可随时恢复
 - 响应式 Dashboard(与 App 观感一致,移动端友好)
 - **⌘K 命令面板 + AI 文档问答** — 任意页面 ⌘K(macOS)/ Ctrl+K 打开搜索;输入 `?xxx` 或选「问 AI」,基于官方文档 RAG 检索 + 用 App 配的 LLM 生成答案,自动贴 source 链接
 - **PWA 支持** — 浏览器地址栏的"安装"图标点一下,即可作为独立 app 装到桌面 / Dock,断网时离线读缓存
@@ -339,7 +340,7 @@ docker run -p 8080:8080 -v beecount_data:/data \
 - 基于本软件提供付费云服务
 - 转售或集成到付费产品里
 
-如需商业授权,请通过 [GitHub Issues](https://github.com/TNT-Likely/BeeCount-Cloud/issues) 联系。详见 [LICENSE](./LICENSE)。
+如需商业授权,请通过 [GitHub Issues](https://github.com/TNT-Likely/BeeCount-Cloud/issues) 联系。
 
 ---
 
