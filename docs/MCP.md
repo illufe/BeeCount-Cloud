@@ -207,14 +207,17 @@ PAT 跟 access token 严格分流:**PAT 只能用在 `/api/v1/mcp`**,所有其�
 
 | Tool | 用途 | 关键参数 |
 |---|---|---|
-| `create_account` | 新建账户 | ledger_id, name, account_type, currency, initial_balance, hidden |
-| `update_account` | 修改账户 | ledger_id, account_id + 至少一个待改字段(含 hidden) |
+| `create_account` | 新建账户 | ledger_id, name, account_type, currency, initial_balance, hidden, responsible_user_id, reconciliation_month, reconciliation_status |
+| `update_account` | 修改账户 | ledger_id, account_id + 至少一个待改字段 |
 | `delete_account` | 删除无交易账户(**二次确认**) | ledger_id, account_id, confirm |
 
 账户工具始终要求显式 `ledger_id`;修改和删除按 `account_id` 定位,不按名称猜测。
 `list_accounts(account_id=...)` 可用于精确回读，并返回 `hidden`、实时 `balance`、
-`transaction_count`、`last_transaction_at` 和 `source_change_id`。`hidden` 只改变
-界面可见性，不删除历史，也不排除余额、统计或净资产。账户删除第一次调用只返回
+`transaction_count`、`last_transaction_at`、`source_change_id`、
+`responsible_user_id`、`reconciliation_month` 和 `reconciliation_status`。
+负责人必须是当前账本成员；月份使用 `YYYY-MM`，状态只接受 `pending`、
+`imported`、`reconciled`、`blocked`。显式空字符串可清空三个元数据字段。
+这些字段和 `hidden` 都不改变余额、统计或净资产。账户删除第一次调用只返回
 `confirmation_required`,只有用户明确同意后才能再次传 `confirm=true`。
 
 ### 批量导入约束

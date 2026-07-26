@@ -22,6 +22,10 @@ This includes:
 - Account visibility extension:
   - migration `0019_account_hidden`
   - user-global projection field `user_account_projection.hidden`
+- Account responsibility and reconciliation extension:
+  - migration `0020_account_reconciliation`
+  - nullable user-global projection fields `responsible_user_id`,
+    `reconciliation_month`, and `reconciliation_status`
 
 ## Rollback
 
