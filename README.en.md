@@ -70,6 +70,7 @@
 
 - Full bookkeeping UI (transactions / accounts / categories / tags / budgets)
 - Hide inactive accounts without removing history, analytics, or net worth; restore them at any time
+- Filter accounts by ledger member and show responsibility plus current reconciliation month/status
 - Interactive dashboard (mobile-like, responsive)
 - **⌘K command palette + AI doc Q&A** — ⌘K (macOS) / Ctrl+K from anywhere; type `?xxx` or pick "Ask AI" to RAG-retrieve from official docs and stream an answer using your App-configured LLM, with source links auto-attached
 - **PWA support** — Click the install icon in your browser's address bar to install as a desktop app; works offline with cached data
