@@ -624,8 +624,24 @@ def list_workspace_accounts(
         bucket["balance"] = float(bucket["balance"]) + float(amt)
 
     # user-global 重构:account 是 per-user 表,直接按 user_id 拉,不再 per-ledger
-    # 重复存 + dedup。target_user 是 admin 模式下指定的 user_id,否则 caller。
-    target_user_id = user_id if (is_admin and user_id) else current_user.id
+    # 重复存 + dedup。共享账本 editor 明确指定单账本时,读取该账本 Owner 的
+    # projection;切换前再查一次 LedgerMember,避免未来 admin 旁路把任意账本
+    # 的账户暴露给非成员。admin 显式 user_id 语义保持原样。
+    shared_owner_user_id: str | None = None
+    if ledger_id and len(ledgers) == 1 and ledgers[0].user_id != current_user.id:
+        member_role = db.scalar(
+            select(LedgerMember.role).where(
+                LedgerMember.ledger_id == ledgers[0].id,
+                LedgerMember.user_id == current_user.id,
+            )
+        )
+        if member_role:
+            shared_owner_user_id = ledgers[0].user_id
+    target_user_id = (
+        user_id
+        if (is_admin and user_id)
+        else shared_owner_user_id or current_user.id
+    )
     target_email = db.scalar(select(User.email).where(User.id == target_user_id))
 
     # 用户级 last_change_id:该用户最近的 user-scope SyncChange.change_id(account)。

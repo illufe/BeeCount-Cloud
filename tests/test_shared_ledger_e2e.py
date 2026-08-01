@@ -9,8 +9,12 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from unittest.mock import patch
+
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -153,6 +157,134 @@ def test_shared_resources_endpoint():
     assert len(data["categories"]) == 1
     assert data["categories"][0]["name"] == "早餐"
     assert data["categories"][0]["kind"] == "expense"
+
+
+def test_workspace_accounts_shared_member_reads_owner_projection_and_current_ledger_stats():
+    """Shared member gets Owner account metadata, scoped to the requested ledger."""
+    from src.models import Ledger, ReadTxProjection, UserAccountProjection
+
+    client = _make_client()
+    owner_token, owner_id = _register(client, "workspace-owner@e2e.test", "d1")
+    editor_token, _ = _register(client, "workspace-editor@e2e.test", "d2")
+    outsider_token, _ = _register(client, "workspace-outsider@e2e.test", "d3")
+
+    for ledger_id in ("workspace-shared", "workspace-other"):
+        r = client.post(
+            "/api/v1/write/ledgers",
+            json={"ledger_id": ledger_id, "ledger_name": ledger_id, "currency": "CNY"},
+            headers=_auth(owner_token, "d1"),
+        )
+        assert r.status_code == 200, r.text
+
+    db_gen = app.dependency_overrides[get_db]()
+    db = next(db_gen)
+    try:
+        ledgers = {
+            ledger.external_id: ledger
+            for ledger in db.scalars(
+                select(Ledger).where(Ledger.user_id == owner_id)
+            ).all()
+        }
+        db.add(UserAccountProjection(
+            user_id=owner_id,
+            sync_id="shared-account-1",
+            name="Owner cash",
+            account_type="cash",
+            currency="CNY",
+            initial_balance=100.0,
+        ))
+        happened_at = datetime.now(timezone.utc)
+        db.add_all([
+            ReadTxProjection(
+                ledger_id=ledgers["workspace-shared"].id,
+                sync_id="shared-income",
+                user_id=owner_id,
+                tx_type="income",
+                amount=50.0,
+                happened_at=happened_at,
+                account_sync_id="shared-account-1",
+            ),
+            ReadTxProjection(
+                ledger_id=ledgers["workspace-shared"].id,
+                sync_id="shared-expense",
+                user_id=owner_id,
+                tx_type="expense",
+                amount=20.0,
+                happened_at=happened_at,
+                account_sync_id="shared-account-1",
+            ),
+            ReadTxProjection(
+                ledger_id=ledgers["workspace-shared"].id,
+                sync_id="shared-transfer-in",
+                user_id=owner_id,
+                tx_type="transfer",
+                amount=30.0,
+                happened_at=happened_at,
+                from_account_sync_id="other-account",
+                to_account_sync_id="shared-account-1",
+            ),
+            # This row must not leak into the explicitly requested shared ledger.
+            ReadTxProjection(
+                ledger_id=ledgers["workspace-other"].id,
+                sync_id="other-ledger-income",
+                user_id=owner_id,
+                tx_type="income",
+                amount=900.0,
+                happened_at=happened_at,
+                account_sync_id="shared-account-1",
+            ),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post(
+        "/api/v1/ledgers/workspace-shared/invites",
+        json={"role": "editor", "expires_in_hours": 24},
+        headers=_auth(owner_token, "d1"),
+    )
+    assert r.status_code == 201, r.text
+    code = r.json()["code"]
+    r = client.post(
+        f"/api/v1/invites/{code}/accept",
+        headers=_auth(editor_token, "d2"),
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.get(
+        "/api/v1/read/workspace/accounts?ledger_id=workspace-shared",
+        headers=_auth(editor_token, "d2"),
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert len(data) == 1
+    account = data[0]
+    assert account["created_by_user_id"] == owner_id
+    assert account["tx_count"] == 3
+    assert account["income_total"] == 50.0
+    assert account["expense_total"] == 20.0
+    assert account["balance"] == 160.0
+    with patch("src.routers.read.workspace._is_admin", return_value=True):
+        r = client.get(
+            "/api/v1/read/workspace/accounts?ledger_id=workspace-shared",
+            headers=_auth(editor_token, "d2"),
+        )
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["created_by_user_id"] == owner_id
+
+    r = client.get(
+        "/api/v1/read/workspace/accounts?ledger_id=workspace-shared",
+        headers=_auth(outsider_token, "d3"),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+    with patch("src.routers.read.workspace._is_admin", return_value=True):
+        r = client.get(
+            "/api/v1/read/workspace/accounts?ledger_id=workspace-shared",
+            headers=_auth(outsider_token, "d3"),
+        )
+    assert r.status_code == 200, r.text
+    assert r.json() == []
 
 
 def test_editor_cannot_patch_ledger_meta():

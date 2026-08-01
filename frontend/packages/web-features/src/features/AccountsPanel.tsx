@@ -1008,7 +1008,7 @@ export function AccountsPanel({
             {hiddenRows.map((row) => (
               <div key={row.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                 <span className="truncate">{row.name} · {row.currency || 'CNY'}</span>
-                <Button size="sm" variant="outline" onClick={() => {
+                <Button size="sm" variant="outline" disabled={!canManage} onClick={() => {
                   onEdit(row)
                   setOpen(true)
                 }}>

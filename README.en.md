@@ -49,6 +49,7 @@
 - **One-click invite** — Owner generates a 6-digit invite code in App or Web (default 24 h TTL); Editor enters the code to join
 - **Who wrote / who last edited** — every transaction tagged with creator + last editor (avatar + role surfaced in the App editor and Web detail dialog)
 - **Member balance stats** — Web dedicated dialog with charts (bar + pie + KPIs); App compact list
+- **Shared assets are read-only visible** — non-owner members can view the Owner's accounts, balances, and transaction counts for the explicitly selected ledger in Web; account create, update, and delete remain Owner-only
 - **Realtime WS push** — every member sees changes within seconds; kicked-while-offline and accept-invite both converge correctly on reconnect
 
 ### Bookkeeping
