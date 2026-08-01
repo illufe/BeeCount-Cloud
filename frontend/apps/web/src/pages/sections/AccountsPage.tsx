@@ -86,8 +86,14 @@ export function AccountsPage() {
   const toast = useToast()
   const navigate = useNavigate()
   const { token, profileMe } = useAuth()
-  const { activeLedgerId } = useLedgers()
+  const { activeLedgerId, currentLedger } = useLedgers()
   const { retryOnConflict, isWriteConflict } = useLedgerWrite()
+
+  // Shared non-owners request the current ledger explicitly. The workspace
+  // read endpoint resolves the Owner projection only after membership checks.
+  const isSharedReader = Boolean(
+    currentLedger?.is_shared && currentLedger.role !== 'owner',
+  )
 
   const base = profileMe?.primary_currency || ''
 
@@ -158,7 +164,10 @@ export function AccountsPage() {
     try {
       const tzOffsetMinutes = -new Date().getTimezoneOffset()
       const [accountRows, tagRows, history, ledgerMembers] = await Promise.all([
-        fetchWorkspaceAccounts(token, { limit: 500 }),
+        fetchWorkspaceAccounts(token, {
+          limit: 500,
+          ledgerId: isSharedReader ? activeLedgerId || undefined : undefined,
+        }),
         fetchWorkspaceTags(token, { limit: 500 }),
         // 净值趋势是全局资产(账户为 user-global、跨所有账本),绝不按当前账本过滤 ——
         // 否则切到无交易的账本时趋势会空,而净资产卡(全局账户余额)仍有数据,口径不一致。
@@ -191,7 +200,7 @@ export function AccountsPage() {
     } catch (err) {
       notifyError(err)
     }
-  }, [token, base, activeLedgerId, notifyError])
+  }, [token, base, activeLedgerId, isSharedReader, notifyError])
 
   useEffect(() => {
     void refresh()
@@ -202,6 +211,7 @@ export function AccountsPage() {
   })
 
   const onSave = async (): Promise<boolean> => {
+    if (isSharedReader) return false
     if (!activeLedgerId) {
       toast.error(t('shell.selectLedgerFirst'), t('notice.error'))
       return false
@@ -302,6 +312,7 @@ export function AccountsPage() {
   // 删除流程:点删除按钮 → 弹 ConfirmDialog,dialog 里根据 tx_count 决定文案。
   // 跟 mobile account_edit_page._delete 对齐:有交易则警示总条数 + 红色按钮。
   const onConfirmDelete = async () => {
+    if (isSharedReader) return
     if (!pendingDelete) return
     if (!activeLedgerId) {
       toast.error(t('shell.selectLedgerFirst'), t('notice.error'))
@@ -558,7 +569,7 @@ export function AccountsPage() {
         form={form}
         rows={filteredRows}
         members={members}
-        canManage
+        canManage={!isSharedReader}
         hideCurrencyCards
         onFormChange={setForm}
         onSave={onSave}

@@ -107,3 +107,13 @@ that `tools/list` contains `create_account`, `update_account`, and
 balance, transaction count, and latest activity. Then create an
 `mcp:account_write` PAT in Web settings. Do not use a PAT against ordinary REST
 routes.
+
+For shared-ledger Web reads, verify the Accounts page with a synthetic non-owner
+member and an explicitly selected `ledger_id`: the member may view the Owner's
+account projection, balance, and transaction count for that ledger, but account
+create/update/delete remains Owner-only. Read visibility is not write authority.
+
+The runtime dependency pin `mcp==1.28.1` keeps the server's
+`mcp.server.fastmcp` import compatible with the deployed image. Before changing
+that pin, build an isolated candidate and verify `/ready`, MCP `tools/list`, and
+the shared-ledger read test before switching the running image.

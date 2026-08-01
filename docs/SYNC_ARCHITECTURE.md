@@ -188,6 +188,11 @@ Web Page mount / useSyncRefresh 触发
   返回 JSON
 ```
 
+共享账本的账户资产读取也走这条路径：请求必须显式带 `ledger_id`。当 caller 是
+该账本的非 Owner 成员时，`workspace/accounts` 读取 Owner 的 user-global 账户
+投影，并将余额与交易数限制在所选账本；不会为成员复制一份账户投影。Web 账户页
+因此对成员保持只读可见，账户创建、修改和删除仍由 Owner-only 写端点保护。
+
 ---
 
 ## 4. 核心契约(最容易踩坑的)
@@ -308,6 +313,14 @@ Web 只在资产主列表和新交易账户选择器过滤隐藏账户；折叠�
 净资产或其它会计口径。mobile 的 partial/full account push 未携带这些字段时，server
 必须保留 projection 现值；显式 `null` 或空字符串表示清空。`reconciliationStatus`
 只允许 `pending`、`imported`、`reconciled`、`blocked`，月份只允许 `YYYY-MM`。
+
+### 4.9 共享账本账户资产读取
+
+`/read/workspace/accounts` 的共享账本分支必须同时满足三个条件：请求显式提供
+`ledger_id`、caller 是该账本的 `LedgerMember`、且账本 Owner 与 caller 不同。满足
+条件时只切换账户投影的读取用户为 Owner；交易统计和余额仍按所选账本聚合。读权限
+不等于写权限，账户 CRUD 继续由 Owner-only 路由校验；不要通过复制成员投影或绕过
+成员资格检查来“补齐”资产页面。
 
 ---
 
