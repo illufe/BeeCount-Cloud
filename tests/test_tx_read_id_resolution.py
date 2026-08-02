@@ -242,3 +242,293 @@ def test_tag_id_not_found_falls_back_to_stored_names():
         assert tx["tags_list"] == ["历史标签"], f"got {tx['tags_list']}"
     finally:
         app.dependency_overrides.clear()
+
+
+def _change(ledger_id: str, entity_type: str, sync_id: str, payload: dict) -> dict:
+    return {
+        "ledger_id": ledger_id,
+        "entity_type": entity_type,
+        "entity_sync_id": sync_id,
+        "action": "upsert",
+        "updated_at": _iso(),
+        "payload": payload,
+    }
+
+
+def test_workspace_category_counts_include_legacy_names_without_crossing_kind_or_scope():
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "category-counts@test.com", device_id="m1", client_type="app")
+        web_token = _register_and_token(client, "category-counts@test.com", device_id="w1", client_type="web")
+        app_hdr = {"Authorization": f"Bearer {app_token}"}
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+
+        ledger_one = "lg-category-counts-1"
+        ledger_two = "lg-category-counts-2"
+        _push(client, app_hdr, "m1", ledger_one, [
+            _change(ledger_one, "ledger", ledger_one, {
+                "syncId": ledger_one, "ledgerName": "分类计数一", "currency": "CNY",
+            }),
+            _change(ledger_two, "ledger", ledger_two, {
+                "syncId": ledger_two, "ledgerName": "分类计数二", "currency": "CNY",
+            }),
+            _change(ledger_one, "category", "cat-breakfast", {
+                "syncId": "cat-breakfast", "name": "早餐", "kind": "expense", "level": 2,
+            }),
+            _change(ledger_one, "category", "cat-cross-expense", {
+                "syncId": "cat-cross-expense", "name": "跨类", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-cross-income", {
+                "syncId": "cat-cross-income", "name": "跨类", "kind": "income", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-ambiguous-a", {
+                "syncId": "cat-ambiguous-a", "name": "同名", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-ambiguous-b", {
+                "syncId": "cat-ambiguous-b", "name": "同名", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "transaction", "tx-breakfast-exact", {
+                "syncId": "tx-breakfast-exact", "type": "expense", "amount": 1,
+                "happenedAt": _iso(), "categoryId": "cat-breakfast",
+                "categoryName": "早餐", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-breakfast-legacy", {
+                "syncId": "tx-breakfast-legacy", "type": "expense", "amount": 2,
+                "happenedAt": _iso(), "categoryName": " 早餐 ", "categoryKind": "EXPENSE",
+            }),
+            _change(ledger_one, "transaction", "tx-cross-expense", {
+                "syncId": "tx-cross-expense", "type": "expense", "amount": 3,
+                "happenedAt": _iso(), "categoryName": "跨类", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-cross-income", {
+                "syncId": "tx-cross-income", "type": "income", "amount": 4,
+                "happenedAt": _iso(), "categoryName": "跨类", "categoryKind": "income",
+            }),
+            _change(ledger_one, "transaction", "tx-ambiguous", {
+                "syncId": "tx-ambiguous", "type": "expense", "amount": 5,
+                "happenedAt": _iso(), "categoryName": "同名", "categoryKind": "expense",
+            }),
+            _change(ledger_two, "transaction", "tx-breakfast-other-ledger", {
+                "syncId": "tx-breakfast-other-ledger", "type": "expense", "amount": 6,
+                "happenedAt": _iso(), "categoryName": "早餐", "categoryKind": "expense",
+            }),
+        ])
+
+        response = client.get(
+            "/api/v1/read/workspace/categories",
+            params={"ledger_id": ledger_one},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        rows = {(row["kind"], row["name"]): row["tx_count"] for row in response.json()}
+        assert rows[("expense", "早餐")] == 2
+        assert rows[("expense", "跨类")] == 1
+        assert rows[("income", "跨类")] == 1
+        assert rows[("expense", "同名")] == 0
+
+        response = client.get(
+            "/api/v1/read/workspace/categories",
+            params={"ledger_id": ledger_two},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        rows = {(row["kind"], row["name"]): row["tx_count"] for row in response.json()}
+        assert rows[("expense", "早餐")] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_workspace_category_detail_merges_exact_and_legacy_without_duplicates():
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "category-detail@test.com", device_id="m1", client_type="app")
+        web_token = _register_and_token(client, "category-detail@test.com", device_id="w1", client_type="web")
+        app_hdr = {"Authorization": f"Bearer {app_token}"}
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+        ledger_one = "lg-category-detail-1"
+        ledger_two = "lg-category-detail-2"
+
+        _push(client, app_hdr, "m1", ledger_one, [
+            _change(ledger_one, "ledger", ledger_one, {
+                "syncId": ledger_one, "ledgerName": "分类详情一", "currency": "CNY",
+            }),
+            _change(ledger_two, "ledger", ledger_two, {
+                "syncId": ledger_two, "ledgerName": "分类详情二", "currency": "CNY",
+            }),
+            _change(ledger_one, "category", "cat-detail", {
+                "syncId": "cat-detail", "name": "详情分类", "kind": "expense", "level": 2,
+            }),
+            _change(ledger_one, "transaction", "tx-detail-exact", {
+                "syncId": "tx-detail-exact", "type": "expense", "amount": 1,
+                "happenedAt": _iso(), "categoryId": "cat-detail",
+                "categoryName": "详情分类", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-detail-legacy", {
+                "syncId": "tx-detail-legacy", "type": "expense", "amount": 2,
+                "happenedAt": _iso(), "categoryName": "详情分类", "categoryKind": "expense",
+            }),
+            _change(ledger_two, "transaction", "tx-detail-other-ledger", {
+                "syncId": "tx-detail-other-ledger", "type": "expense", "amount": 3,
+                "happenedAt": _iso(), "categoryName": "详情分类", "categoryKind": "expense",
+            }),
+        ])
+
+        response = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={"ledger_id": ledger_one, "category_sync_id": "cat-detail", "limit": 50},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 2
+        assert {row["id"] for row in page["items"]} == {"tx-detail-exact", "tx-detail-legacy"}
+
+        response = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={"ledger_id": ledger_two, "category_sync_id": "cat-detail", "limit": 50},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 1
+        assert [row["id"] for row in page["items"]] == ["tx-detail-other-ledger"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_workspace_category_parent_rollup_and_detail_keep_scope_kind_and_ambiguity():
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "category-parent@test.com", device_id="m1", client_type="app")
+        web_token = _register_and_token(client, "category-parent@test.com", device_id="w1", client_type="web")
+        app_hdr = {"Authorization": f"Bearer {app_token}"}
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+        ledger_one = "lg-category-parent-1"
+        ledger_two = "lg-category-parent-2"
+
+        _push(client, app_hdr, "m1", ledger_one, [
+            _change(ledger_one, "ledger", ledger_one, {
+                "syncId": ledger_one, "ledgerName": "父分类账本一", "currency": "CNY",
+            }),
+            _change(ledger_two, "ledger", ledger_two, {
+                "syncId": ledger_two, "ledgerName": "父分类账本二", "currency": "CNY",
+            }),
+            _change(ledger_one, "category", "cat-parent-expense", {
+                "syncId": "cat-parent-expense", "name": " 食品 ", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-child-breakfast", {
+                "syncId": "cat-child-breakfast", "name": "早餐", "kind": "expense", "level": 2,
+                "parentName": "食品",
+            }),
+            _change(ledger_one, "category", "cat-child-snack", {
+                "syncId": "cat-child-snack", "name": "零食", "kind": "expense", "level": 2,
+                "parentName": " 食品 ",
+            }),
+            _change(ledger_one, "category", "cat-parent-income", {
+                "syncId": "cat-parent-income", "name": "食品", "kind": "income", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-child-income", {
+                "syncId": "cat-child-income", "name": "早餐", "kind": "income", "level": 2,
+                "parentName": "食品",
+            }),
+            _change(ledger_one, "category", "cat-parent-ambiguous-a", {
+                "syncId": "cat-parent-ambiguous-a", "name": "歧义", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-parent-ambiguous-b", {
+                "syncId": "cat-parent-ambiguous-b", "name": "歧义", "kind": "expense", "level": 1,
+            }),
+            _change(ledger_one, "category", "cat-child-ambiguous", {
+                "syncId": "cat-child-ambiguous", "name": "孩子", "kind": "expense", "level": 2,
+                "parentName": "歧义",
+            }),
+            _change(ledger_one, "transaction", "tx-parent-exact", {
+                "syncId": "tx-parent-exact", "type": "expense", "amount": 1,
+                "happenedAt": _iso(), "categoryId": "cat-parent-expense",
+                "categoryName": "食品", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-parent-legacy", {
+                "syncId": "tx-parent-legacy", "type": "expense", "amount": 2,
+                "happenedAt": _iso(), "categoryName": " 食品 ", "categoryKind": "EXPENSE",
+            }),
+            _change(ledger_one, "transaction", "tx-breakfast-exact", {
+                "syncId": "tx-breakfast-exact", "type": "expense", "amount": 3,
+                "happenedAt": _iso(), "categoryId": "cat-child-breakfast",
+                "categoryName": "早餐", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-snack-legacy", {
+                "syncId": "tx-snack-legacy", "type": "expense", "amount": 4,
+                "happenedAt": _iso(), "categoryName": " 零食 ", "categoryKind": "EXPENSE",
+            }),
+            _change(ledger_one, "transaction", "tx-income-cross-kind", {
+                "syncId": "tx-income-cross-kind", "type": "income", "amount": 5,
+                "happenedAt": _iso(), "categoryName": "早餐", "categoryKind": "income",
+            }),
+            _change(ledger_one, "transaction", "tx-ambiguous-parent-exact", {
+                "syncId": "tx-ambiguous-parent-exact", "type": "expense", "amount": 6,
+                "happenedAt": _iso(), "categoryId": "cat-parent-ambiguous-a",
+                "categoryName": "歧义", "categoryKind": "expense",
+            }),
+            _change(ledger_one, "transaction", "tx-ambiguous-child-legacy", {
+                "syncId": "tx-ambiguous-child-legacy", "type": "expense", "amount": 7,
+                "happenedAt": _iso(), "categoryName": "孩子", "categoryKind": "expense",
+            }),
+            _change(ledger_two, "transaction", "tx-parent-other-ledger", {
+                "syncId": "tx-parent-other-ledger", "type": "expense", "amount": 8,
+                "happenedAt": _iso(), "categoryId": "cat-parent-expense",
+                "categoryName": "食品", "categoryKind": "expense",
+            }),
+            _change(ledger_two, "transaction", "tx-child-other-ledger", {
+                "syncId": "tx-child-other-ledger", "type": "expense", "amount": 9,
+                "happenedAt": _iso(), "categoryName": "零食", "categoryKind": "expense",
+            }),
+        ])
+
+        response = client.get(
+            "/api/v1/read/workspace/categories",
+            params={"ledger_id": ledger_one},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        rows = {(row["kind"], row["name"]): row["tx_count"] for row in response.json()}
+        assert rows[("expense", "食品")] == 4
+        assert rows[("expense", "早餐")] == 1
+        assert rows[("expense", "零食")] == 1
+        assert rows[("income", "早餐")] == 1
+        assert rows[("expense", "孩子")] == 1
+        rows_by_id = {row["id"]: row["tx_count"] for row in response.json()}
+        assert rows_by_id["cat-parent-ambiguous-a"] == 1
+        assert rows_by_id["cat-parent-ambiguous-b"] == 0
+
+        response = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={"ledger_id": ledger_one, "category_sync_id": "cat-parent-expense", "limit": 50},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 4
+        assert {row["id"] for row in page["items"]} == {
+            "tx-parent-exact", "tx-parent-legacy", "tx-breakfast-exact", "tx-snack-legacy",
+        }
+
+        response = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={"ledger_id": ledger_one, "category_sync_id": "cat-child-breakfast", "limit": 50},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 1
+        assert [row["id"] for row in page["items"]] == ["tx-breakfast-exact"]
+
+        response = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={"ledger_id": ledger_one, "category_sync_id": "cat-parent-ambiguous-a", "limit": 50},
+            headers=web_hdr,
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 1
+        assert [row["id"] for row in page["items"]] == ["tx-ambiguous-parent-exact"]
+    finally:
+        app.dependency_overrides.clear()

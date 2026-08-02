@@ -193,6 +193,23 @@ Web Page mount / useSyncRefresh 触发
 投影，并将余额与交易数限制在所选账本；不会为成员复制一份账户投影。Web 账户页
 因此对成员保持只读可见，账户创建、修改和删除仍由 Owner-only 写端点保护。
 
+### 3.5 分类读路径的兼容口径
+
+历史交易可能只有 `category_kind` / `category_name`，没有
+`category_sync_id`。`workspace/categories` 的 `tx_count` 与
+`workspace/transactions?category_sync_id=...` 的分类详情都遵循同一套解析顺序：
+
+1. 先按分类 `sync_id` 精确匹配；精确 ID 的交易始终保留。
+2. 对 `category_sync_id IS NULL` 的历史交易，才在当前 user category scope
+   内按 `trim + lowercase(kind, name)` 做名称回退；只有规范化名称在该 scope
+   内唯一时才并入。重复名称（歧义）保持 exact-only，不猜测归属。
+3. 选择一级父分类时，额外纳入同 `kind` 且 `parent_name` 指向该父分类的直属二级
+   分类；父分类计数是自身 direct 计数加这些直属子类计数，子类计数不变。
+   不跨收支类型、不递归更深层级，也不回写历史交易。
+
+上述聚合始终受 caller 可见账本和 user scope 限制；这是只读兼容逻辑，不改变
+projection、sync_changes 或写入边界。
+
 ---
 
 ## 4. 核心契约(最容易踩坑的)

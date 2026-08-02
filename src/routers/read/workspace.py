@@ -9,10 +9,16 @@ from __future__ import annotations
 import statistics as _stats
 
 from pydantic import BaseModel
-from sqlalchemy import false as sa_false
+from sqlalchemy import false as sa_false, tuple_
 
 from ._shared import *  # noqa: F401,F403 — imports + helpers + router
 from ...models import ExchangeRateCache, UserExchangeRateProjection
+
+
+def _category_name_key(value: object) -> str:
+    """分类名 fallback 的稳定比较键,与写路径的 trim/lower 规则对齐。"""
+    return str(value or "").strip().lower()
+
 
 # ---------------------------------------------------------------------------
 # 净值历史 — 响应 schema
@@ -92,7 +98,85 @@ def list_workspace_transactions(
             ReadTxProjection.tag_sync_ids_json.like(f'%"{tag_sync_id}"%')
         )
     if category_sync_id:
-        query = query.where(ReadTxProjection.category_sync_id == category_sync_id)
+        # 新客户端带 categoryId 的交易走稳定 ID;旧客户端只有名称,所以在
+        # 已授权的 user-global category scope 里解析该 ID,再把 NULL ID 的
+        # legacy 行按(kind,name)并入。解析失败时保持原来的 exact-only 语义。
+        category_target_user_id = user_id if (is_admin and user_id) else current_user.id
+        category_scope_rows = db.execute(
+            select(
+                UserCategoryProjection.sync_id,
+                UserCategoryProjection.kind,
+                UserCategoryProjection.name,
+                UserCategoryProjection.level,
+                UserCategoryProjection.parent_name,
+            ).where(
+                UserCategoryProjection.user_id == category_target_user_id,
+            )
+        ).all()
+        category_key_to_sync_id: dict[tuple[str, str], str | None] = {}
+        for row in category_scope_rows:
+            category_kind_key = _category_name_key(row[1] or "expense")
+            category_name_key = _category_name_key(row[2])
+            if not category_kind_key or not category_name_key or not row[0]:
+                continue
+            category_key = (category_kind_key, category_name_key)
+            existing_sid = category_key_to_sync_id.get(category_key)
+            if existing_sid is None and category_key in category_key_to_sync_id:
+                continue
+            if existing_sid is not None and existing_sid != row[0]:
+                category_key_to_sync_id[category_key] = None
+            else:
+                category_key_to_sync_id[category_key] = row[0]
+
+        selected_category_rows = [
+            row for row in category_scope_rows if row[0] == category_sync_id
+        ]
+        exact_category_ids = [category_sync_id]
+        legacy_category_keys: set[tuple[str, str]] = set()
+        if len(selected_category_rows) == 1:
+            selected_category = selected_category_rows[0]
+            selected_kind_key = _category_name_key(selected_category[1] or "expense")
+            selected_name_key = _category_name_key(selected_category[2])
+            selected_key = (selected_kind_key, selected_name_key)
+            selected_key_is_unique = (
+                bool(selected_kind_key and selected_name_key)
+                and category_key_to_sync_id.get(selected_key) == category_sync_id
+            )
+            selected_level = int(selected_category[3] or 1)
+            if selected_level == 1 and selected_key_is_unique:
+                legacy_category_keys.add(selected_key)
+                for row in category_scope_rows:
+                    child_kind_key = _category_name_key(row[1] or "expense")
+                    child_name_key = _category_name_key(row[2])
+                    child_parent_key = _category_name_key(row[4])
+                    child_key = (child_kind_key, child_name_key)
+                    if (
+                        int(row[3] or 1) == 2
+                        and child_kind_key == selected_kind_key
+                        and child_parent_key == selected_name_key
+                        and row[0]
+                    ):
+                        exact_category_ids.append(row[0])
+                        if category_key_to_sync_id.get(child_key) == row[0]:
+                            legacy_category_keys.add(child_key)
+            elif selected_key_is_unique:
+                legacy_category_keys.add(selected_key)
+
+        exact_category = ReadTxProjection.category_sync_id.in_(exact_category_ids)
+        if legacy_category_keys:
+            normalized_category_key = tuple_(
+                func.lower(func.trim(ReadTxProjection.category_kind)),
+                func.lower(func.trim(ReadTxProjection.category_name)),
+            )
+            query = query.where(or_(
+                exact_category,
+                and_(
+                    ReadTxProjection.category_sync_id.is_(None),
+                    normalized_category_key.in_(sorted(legacy_category_keys)),
+                ),
+            ))
+        else:
+            query = query.where(exact_category)
     if account_sync_id:
         query = query.where(or_(
             ReadTxProjection.account_sync_id == account_sync_id,
@@ -751,8 +835,9 @@ def list_workspace_categories(
     if q:
         cat_query = cat_query.where(UserCategoryProjection.name.ilike(f"%{q}%"))
 
-    # tx_count 聚合:按 category_sync_id 数 ReadTxProjection 行。tx 仍 per-ledger,
-    # 限定在 caller 可见 ledger 范围内。
+    # tx_count 聚合:tx 仍 per-ledger,限定在 caller 可见 ledger 范围内。
+    # 先保留带 category_sync_id 的 exact 计数;旧客户端交易只有 categoryName /
+    # categoryKind 时,再按规范化 (kind,name) 一次性聚合,绝不按分类 N+1 查询。
     from collections import defaultdict
     tx_count_by_sync_id: dict[str, int] = defaultdict(int)
     if ledger_internal_ids:
@@ -772,8 +857,74 @@ def list_workspace_categories(
             if sid:
                 tx_count_by_sync_id[sid] += int(row[1] or 0)
 
+    category_rows = db.scalars(cat_query).all()
+    category_key_to_sync_id: dict[tuple[str, str], str | None] = {}
+    for cat in category_rows:
+        category_kind_key = _category_name_key(cat.kind or "expense")
+        category_name_key = _category_name_key(cat.name)
+        if not category_kind_key or not category_name_key or not cat.sync_id:
+            continue
+        key = (category_kind_key, category_name_key)
+        existing_sid = category_key_to_sync_id.get(key)
+        if existing_sid is None and key in category_key_to_sync_id:
+            # 已知歧义 key 保持 None,不把 legacy 交易猜给任一分类。
+            continue
+        if existing_sid is not None and existing_sid != cat.sync_id:
+            category_key_to_sync_id[key] = None
+        else:
+            category_key_to_sync_id[key] = cat.sync_id
+
+    if ledger_internal_ids and category_key_to_sync_id:
+        legacy_name_counts = db.execute(
+            select(
+                ReadTxProjection.category_kind,
+                ReadTxProjection.category_name,
+                func.count(),
+            )
+            .where(
+                ReadTxProjection.ledger_id.in_(ledger_internal_ids),
+                ReadTxProjection.category_sync_id.is_(None),
+                ReadTxProjection.category_kind.is_not(None),
+                ReadTxProjection.category_name.is_not(None),
+            )
+            .group_by(
+                ReadTxProjection.category_kind,
+                ReadTxProjection.category_name,
+            )
+        ).all()
+        for category_kind, category_name, count in legacy_name_counts:
+            key = (_category_name_key(category_kind), _category_name_key(category_name))
+            sid = category_key_to_sync_id.get(key)
+            if sid:
+                tx_count_by_sync_id[sid] += int(count or 0)
+
+    # 一级父分类汇总=自身 direct count + 同 kind 且 parent_name 指向该 parent
+    # 的直属二级分类。parent/name 歧义时不猜,不跨 kind,也不递归多级。
+    for parent in category_rows:
+        parent_sync_id = parent.sync_id
+        parent_name_key = _category_name_key(parent.name)
+        parent_kind_key = _category_name_key(parent.kind or "expense")
+        if (
+            not parent_sync_id
+            or int(parent.level or 1) != 1
+            or not parent_name_key
+            or not parent_kind_key
+            or category_key_to_sync_id.get((parent_kind_key, parent_name_key)) != parent_sync_id
+        ):
+            continue
+        for child in category_rows:
+            child_sync_id = child.sync_id
+            if (
+                not child_sync_id
+                or int(child.level or 1) != 2
+                or _category_name_key(child.kind or "expense") != parent_kind_key
+                or _category_name_key(child.parent_name) != parent_name_key
+            ):
+                continue
+            tx_count_by_sync_id[parent_sync_id] += tx_count_by_sync_id.get(child_sync_id, 0)
+
     all_categories: list[WorkspaceCategoryOut] = []
-    for cat in db.scalars(cat_query).all():
+    for cat in category_rows:
         name = (cat.name or "").strip()
         if not name:
             continue
