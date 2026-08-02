@@ -169,6 +169,7 @@ async def create_transaction(
     if amount <= 0:
         raise ValueError("amount must be positive")
 
+    category_sync_id: str | None = None
     with SessionLocal() as db:
         led, ledger_status = _resolve_write_ledger(db, user, ledger_id)
         if ledger_status is not None:
@@ -176,7 +177,7 @@ async def create_transaction(
             return ledger_status
         assert led is not None  # 契约:_resolve_write_ledger 的 status 为 None ⟺ led 命中
         if category:
-            _lookup_category_sync_id(db, user.id, category, tx_type)
+            category_sync_id = _lookup_category_sync_id(db, user.id, category, tx_type)
         if account:
             _lookup_account_sync_id(db, user.id, account)
         ledger_external_id = led.external_id
@@ -206,6 +207,8 @@ async def create_transaction(
     if category:
         body["category_name"] = category
         body["category_kind"] = tx_type
+        if category_sync_id and tx_type != "transfer":
+            body["category_id"] = category_sync_id
     if account:
         if tx_type == "transfer":
             body["from_account_name"] = account
@@ -279,6 +282,7 @@ async def update_transaction(
             or float(native_amount) <= 0
         ):
             raise ValueError("native_amount must be a finite positive number")
+    category_sync_id: str | None = None
     with SessionLocal() as db:
         existing = db.scalar(
             select(ReadTxProjection).where(
@@ -298,7 +302,9 @@ async def update_transaction(
         ledger_external_id = led.external_id
         effective_tx_type = tx_type or existing.tx_type
         if category:
-            _lookup_category_sync_id(db, user.id, category, effective_tx_type)
+            category_sync_id = _lookup_category_sync_id(
+                db, user.id, category, effective_tx_type
+            )
         if account:
             _lookup_account_sync_id(db, user.id, account)
 
@@ -318,6 +324,13 @@ async def update_transaction(
     if category is not None:
         patch["category_name"] = category
         patch["category_kind"] = effective_tx_type
+        if not str(category).strip():
+            # An explicit blank category is the API's clear operation.  Clear
+            # the stable ID as well, otherwise the snapshot mutator removes
+            # categoryName but leaves a stale categoryId on the transaction.
+            patch["category_id"] = ""
+        elif category_sync_id and effective_tx_type != "transfer":
+            patch["category_id"] = category_sync_id
     if account is not None:
         if effective_tx_type == "transfer":
             patch["from_account_name"] = account
@@ -505,6 +518,7 @@ async def create_transactions(
     # 2. 规范化每笔 + 基础校验;收集要校验的 category / account 名
     norm_items: list[dict[str, Any]] = []
     cat_needed: set[str] = set()
+    category_refs: set[tuple[str, str]] = set()
     acc_needed: set[str] = set()
     acc_id_needed: set[str] = set()
     for i, raw in enumerate(transactions):
@@ -547,6 +561,8 @@ async def create_transactions(
             item["category_name"] = str(category)
             item["category_kind"] = tx_type
             cat_needed.add(str(category))
+            if tx_type != "transfer":
+                category_refs.add((tx_type, str(category)))
         account = raw.get("account") or raw.get("account_name")
         account_id = raw.get("account_id")
         from_account = raw.get("from_account") or raw.get("from_account_name") or account
@@ -590,6 +606,17 @@ async def create_transactions(
     #    跟单笔 create_transaction 的 _lookup_* 校验同口径)
     with SessionLocal() as db:
         _validate_names_exist(db, user.id, categories=cat_needed, accounts=set())
+        category_sync_ids = _load_category_sync_ids(
+            db, user.id, refs=category_refs
+        )
+        for item in norm_items:
+            if item["tx_type"] == "transfer":
+                continue
+            category_name = item.get("category_name")
+            if not category_name:
+                continue
+            category_key = (str(item["category_kind"]), str(category_name))
+            item["category_id"] = category_sync_ids[category_key]
         account_by_id, account_by_name = _load_account_details(
             db, user.id, account_ids=acc_id_needed, account_names=acc_needed
         )
@@ -938,6 +965,45 @@ def _lookup_category_sync_id(db, user_id: str, name: str | None, tx_type: str | 
     if row is None:
         raise ValueError(f"Category not found: {name}")
     return row.sync_id
+
+
+def _load_category_sync_ids(
+    db, user_id: str, *, refs: set[tuple[str, str]]
+) -> dict[tuple[str, str], str]:
+    """Resolve a batch's ``(kind, name)`` category references in one query.
+
+    Category rows are user-global.  The batch MCP path already validates names
+    in ``_validate_names_exist``; this second lookup preserves the kind-aware
+    single-create contract while avoiding one query per transaction.
+    """
+    if not refs:
+        return {}
+    names = {name for _kind, name in refs}
+    kinds = {kind for kind, _name in refs}
+    rows = db.execute(
+        select(
+            UserCategoryProjection.kind,
+            UserCategoryProjection.name,
+            UserCategoryProjection.sync_id,
+        ).where(
+            UserCategoryProjection.user_id == user_id,
+            UserCategoryProjection.kind.in_(kinds),
+            UserCategoryProjection.name.in_(names),
+        )
+    ).all()
+    resolved: dict[tuple[str, str], str] = {}
+    for kind, name, sync_id in rows:
+        if not sync_id:
+            continue
+        key = (str(kind), str(name))
+        previous = resolved.get(key)
+        if previous is not None and previous != sync_id:
+            raise ValueError(f"Ambiguous category: {name}")
+        resolved[key] = str(sync_id)
+    missing = sorted(refs - resolved.keys())
+    if missing:
+        raise ValueError(f"Category not found: {missing[0][1]}")
+    return resolved
 
 
 def _account_currency(db, user_id: str, name: str | None) -> str | None:

@@ -210,6 +210,10 @@ Web Page mount / useSyncRefresh 触发
 上述聚合始终受 caller 可见账本和 user scope 限制；这是只读兼容逻辑，不改变
 projection、sync_changes 或写入边界。
 
+MCP 新建和更新交易在写入前按当前 user scope 的 `(kind, name)` 解析唯一分类
+`sync_id`，并随 `category_name` / `category_kind` 一起持久化 `category_id`；无分类
+或转账不写 ID。上述名称 fallback 仅服务历史 NULL-ID 交易，不回写历史数据。
+
 ---
 
 ## 4. 核心契约(最容易踩坑的)
