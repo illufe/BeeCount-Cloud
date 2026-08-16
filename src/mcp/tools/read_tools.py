@@ -210,6 +210,23 @@ def get_transaction(user: User, sync_id: str) -> dict[str, Any] | None:
         return out
 
 
+def get_transactions(user: User, sync_ids: list[str]) -> dict[str, Any]:
+    """按 sync_ids 批量取交易(只返回命中的,user 级跨账本,口径与 get_transaction 一致)。"""
+    if not isinstance(sync_ids, list) or not sync_ids:
+        raise ValueError("sync_ids must be a non-empty list")
+    if len(sync_ids) > 200:
+        raise ValueError("sync_ids exceeds the 200-item limit")
+    ids = [str(s).strip() for s in sync_ids]
+    if any(not i for i in ids):
+        raise ValueError("sync_ids contains an empty id")
+    with SessionLocal() as db:
+        rows = db.scalars(select(ReadTxProjection).where(
+            ReadTxProjection.user_id == user.id,
+            ReadTxProjection.sync_id.in_(ids),
+        )).all()
+        return {"transactions": [_serialize_tx(r, r.category_name) for r in rows]}
+
+
 def list_categories(user: User, *, kind: str | None = None) -> list[dict[str, Any]]:
     """列分类。kind 可选 'expense' / 'income' / 'transfer'。"""
     with SessionLocal() as db:

@@ -254,6 +254,15 @@ async def get_transaction(ctx: Context, sync_id: str) -> dict[str, Any] | None:
 
 
 @mcp.tool()
+async def get_transactions(ctx: Context, sync_ids: list[str]) -> dict[str, Any]:
+    """Get multiple transactions by their sync_ids (cross-ledger, user-scoped)."""
+    return await _logged_call(
+        ctx, name="get_transactions", scope=SCOPE_MCP_READ, kwargs={"sync_ids": sync_ids},
+        body=lambda user: asyncio.to_thread(read_tools.get_transactions, user, sync_ids),
+    )
+
+
+@mcp.tool()
 async def list_categories(
     ctx: Context, kind: str | None = None
 ) -> list[dict[str, Any]]:

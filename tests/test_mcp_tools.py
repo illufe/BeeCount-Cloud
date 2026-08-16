@@ -153,6 +153,146 @@ def test_serialize_tx_exposes_ids_currency_native_and_exclude_flags() -> None:
     assert result["exclude_from_budget"] is True
 
 
+def test_get_transactions_returns_all_matching_with_full_fields(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from src.models import Ledger, ReadTxProjection
+
+    client, session_maker = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, email="batch@example.com")
+        token = u["access_token"]
+        ledger_id = _make_ledger(client, token, "Batch")
+        user = _fetch_user(session_maker, "batch@example.com")
+        with session_maker() as db:
+            led = db.scalar(select(Ledger).where(Ledger.external_id == ledger_id))
+            now = datetime.now(timezone.utc)
+            for i in range(3):
+                db.add(ReadTxProjection(
+                    ledger_id=led.id,
+                    sync_id=f"tx-{i}",
+                    user_id=user.id,
+                    tx_type="expense",
+                    amount=10.5 + i,
+                    happened_at=now,
+                    note=f"note-{i}",
+                    category_name="Food",
+                    account_name="Cash",
+                    account_sync_id="acc-1",
+                    currency_code="USD",
+                    native_amount=71.0 + i,
+                    exclude_from_stats=True,
+                    exclude_from_budget=False,
+                ))
+            db.commit()
+
+        out = read_tools.get_transactions(user, ["tx-0", "tx-1", "tx-2"])
+        txs = out["transactions"]
+        assert len(txs) == 3
+        assert {t["sync_id"] for t in txs} == {"tx-0", "tx-1", "tx-2"}
+        tx0 = next(t for t in txs if t["sync_id"] == "tx-0")
+        assert tx0["tx_type"] == "expense"
+        assert tx0["amount"] == 10.5
+        assert tx0["happened_at"] is not None
+        assert tx0["note"] == "note-0"
+        assert tx0["account_id"] == "acc-1"
+        assert tx0["currency_code"] == "USD"
+        assert tx0["native_amount"] == 71.0
+        assert tx0["exclude_from_stats"] is True
+        assert tx0["exclude_from_budget"] is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_transactions_returns_only_matching(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from src.models import Ledger, ReadTxProjection
+
+    client, session_maker = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, email="batch-partial@example.com")
+        token = u["access_token"]
+        ledger_id = _make_ledger(client, token, "BatchPartial")
+        user = _fetch_user(session_maker, "batch-partial@example.com")
+        with session_maker() as db:
+            led = db.scalar(select(Ledger).where(Ledger.external_id == ledger_id))
+            now = datetime.now(timezone.utc)
+            for i in range(2):
+                db.add(ReadTxProjection(
+                    ledger_id=led.id,
+                    sync_id=f"tx-{i}",
+                    user_id=user.id,
+                    tx_type="expense",
+                    amount=1.0,
+                    happened_at=now,
+                ))
+            db.commit()
+
+        out = read_tools.get_transactions(user, ["tx-0", "missing"])
+        txs = out["transactions"]
+        assert len(txs) == 1
+        assert txs[0]["sync_id"] == "tx-0"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_transactions_rejects_invalid_input(monkeypatch) -> None:
+    import pytest
+
+    client, session_maker = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, email="batch-valid@example.com")
+        _make_ledger(client, u["access_token"], "BatchValid")
+        user = _fetch_user(session_maker, "batch-valid@example.com")
+
+        with pytest.raises(ValueError, match="non-empty list"):
+            read_tools.get_transactions(user, [])
+        with pytest.raises(ValueError, match="non-empty list"):
+            read_tools.get_transactions(user, "not-a-list")
+        with pytest.raises(ValueError, match="200-item limit"):
+            read_tools.get_transactions(user, [f"tx-{i}" for i in range(201)])
+        with pytest.raises(ValueError, match="empty id"):
+            read_tools.get_transactions(user, ["tx-0", "   "])
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_transactions_isolated_per_user(monkeypatch) -> None:
+    from datetime import datetime, timezone
+
+    from src.models import Ledger, ReadTxProjection
+
+    client, session_maker = _make_client_and_engine(monkeypatch)
+    try:
+        a = _register(client, email="batch-a@example.com")
+        b = _register(client, email="batch-b@example.com")
+        ledger_a = _make_ledger(client, a["access_token"], "LedgerA")
+        ledger_b = _make_ledger(client, b["access_token"], "LedgerB")
+        user_a = _fetch_user(session_maker, "batch-a@example.com")
+        user_b = _fetch_user(session_maker, "batch-b@example.com")
+        with session_maker() as db:
+            led_a = db.scalar(select(Ledger).where(Ledger.external_id == ledger_a))
+            led_b = db.scalar(select(Ledger).where(Ledger.external_id == ledger_b))
+            now = datetime.now(timezone.utc)
+            db.add(ReadTxProjection(
+                ledger_id=led_a.id, sync_id="tx-a", user_id=user_a.id,
+                tx_type="expense", amount=1.0, happened_at=now,
+            ))
+            db.add(ReadTxProjection(
+                ledger_id=led_b.id, sync_id="tx-b", user_id=user_b.id,
+                tx_type="expense", amount=1.0, happened_at=now,
+            ))
+            db.commit()
+
+        out_a = read_tools.get_transactions(user_a, ["tx-a", "tx-b"])
+        assert {t["sync_id"] for t in out_a["transactions"]} == {"tx-a"}
+        out_b = read_tools.get_transactions(user_b, ["tx-a", "tx-b"])
+        assert {t["sync_id"] for t in out_b["transactions"]} == {"tx-b"}
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_get_ledger_stats_returns_zero_for_fresh_ledger(monkeypatch) -> None:
     client, session_maker = _make_client_and_engine(monkeypatch)
     try:
