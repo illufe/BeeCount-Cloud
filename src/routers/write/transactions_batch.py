@@ -26,7 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from ... import snapshot_builder
+from ... import projection, snapshot_builder
 from ...concurrency import lock_ledger_for_materialize
 from ...config import get_settings
 from ...database import get_db
@@ -35,6 +35,7 @@ from ...models import (
     AttachmentFile,
     AuditLog,
     Ledger,
+    SyncChange,
     SyncPushIdempotency,
     User,
     UserTagProjection,
@@ -51,6 +52,7 @@ from ._shared import (
     _load_idempotent_response,
     _payload_with_actor,
     _prepare_write,
+    _utcnow,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,6 +185,136 @@ async def create_tx_batch(
     # 3. lock + build + mutate + commit 整段丢 threadpool(issue #31 A2),不阻塞
     #    event loop(批量 build 是 O(账本交易数),正是导致"服务端短时无响应"的点);
     #    广播在线程返回后做。_core 返回 (response, did_replay)。
+    def _core_batch_fast(*, tag_name_to_sync_id: dict[str, str]) -> tuple[BatchCreateTxResponse, bool]:
+        """create-only 批的 fast path 核心(在 worker thread 里跑,sync DB):
+        对每个 item 用空快照 `{"items": [], "count": 0}` 跑 mutator —— 复用其字段
+        规范化 + actor 标记,deepcopy 成本≈0(见 `_commit_create_tx_fast`);随后
+        emit 一条 transaction SyncChange + projection.upsert_tx;全部 item 先纯内存
+        收集 new_items,任一抛 ValueError/KeyError → 400 `BATCH_TX_INVALID` +
+        failed_index,此时未写任何 DB 行(失败原子性与旧路径同口径)。一次 commit;
+        IntegrityError → rollback → 按 Idempotency-Key + request hash 重放。"""
+        now = _utcnow()
+        created_sync_ids: list[str] = []
+        new_items: list[dict[str, Any]] = []
+
+        # 先对全部 item 跑 mutator(纯内存)收集 new_items —— 失败时无任何 DB 写入。
+        for i, item in enumerate(req.transactions):
+            try:
+                tx_payload = _build_tx_payload(
+                    item=item,
+                    auto_tag_names=[],  # fast path 无 auto/extra tag,空列表
+                    attachment_dict=None,  # fast path 无附件
+                    actor_user=current_user,
+                    tag_name_to_sync_id=tag_name_to_sync_id,
+                )
+                _snap, sync_id = create_transaction({"items": [], "count": 0}, tx_payload)
+            except (KeyError, ValueError, PermissionError) as exc:
+                logger.warning("tx.batch.fast mutate failed at idx=%d: %s", i, exc)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error_code": "BATCH_TX_INVALID", "message": str(exc), "failed_index": i},
+                ) from exc
+            new_items.append(_snap["items"][0])
+            if sync_id:
+                created_sync_ids.append(sync_id)
+
+        # emit 每条 + flush 拿 change_id + upsert projection。
+        emitted_change_ids: list[int] = []
+        for new_item in new_items:
+            tx_id = new_item.get("syncId")
+            change_row = SyncChange(
+                user_id=ledger.user_id,
+                ledger_id=ledger.id,
+                entity_type="transaction",
+                entity_sync_id=tx_id,
+                action="upsert",
+                payload_json=new_item,
+                updated_at=now,
+                updated_by_device_id=device_id,
+                updated_by_user_id=current_user.id,
+            )
+            db.add(change_row)
+            db.flush()
+            emitted_change_ids.append(change_row.change_id)
+            projection.upsert_tx(
+                db,
+                ledger_id=ledger.id,
+                user_id=ledger.user_id,
+                source_change_id=change_row.change_id,
+                payload=new_item,
+            )
+
+        new_change_id = max(emitted_change_ids) if emitted_change_ids else (
+            snapshot_builder.latest_change_id(db, ledger.id)
+        )
+
+        db.add(
+            AuditLog(
+                user_id=current_user.id,
+                ledger_id=ledger.id,
+                action="web_tx_batch_create",
+                metadata_json={
+                    "ledgerId": ledger.external_id,
+                    "baseChangeId": req.base_change_id,
+                    "newChangeId": new_change_id,
+                    "createdCount": len(created_sync_ids),
+                    "createdIds": created_sync_ids,
+                    "attachmentFileId": None,
+                    "autoTagNames": [],
+                },
+            )
+        )
+
+        response = BatchCreateTxResponse(
+            ledger_id=ledger.external_id,
+            base_change_id=req.base_change_id,
+            new_change_id=new_change_id,
+            server_timestamp=now,
+            created_sync_ids=created_sync_ids,
+            attachment_id=None,
+        )
+
+        request_hash = _hash_request(request.method, request.url.path, payload_for_ide)
+        if idempotency_key:
+            db.add(
+                SyncPushIdempotency(
+                    user_id=current_user.id,
+                    device_id=device_id,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                    response_json=response.model_dump(mode="json"),
+                    created_at=now,
+                    expires_at=now + timedelta(hours=24),
+                )
+            )
+
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            if idempotency_key:
+                replay = _load_idempotent_response(
+                    db,
+                    user_id=current_user.id,
+                    device_id=device_id,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                )
+                if replay is not None:
+                    replay_resp = (
+                        BatchCreateTxResponse(**replay.model_dump())
+                        if hasattr(replay, "model_dump") else replay
+                    )
+                    return replay_resp, True  # type: ignore[return-value]
+            raise
+
+        logger.info(
+            "tx.batch.fast_create ledger=%s count=%d change_id=%d device=%s user=%s tags=%d",
+            ledger.external_id, len(created_sync_ids), new_change_id, device_id,
+            current_user.id, len(tag_name_to_sync_id),
+        )
+        return response, False
+
     def _core() -> tuple[BatchCreateTxResponse, bool]:
         lock_ledger_for_materialize(db, ledger.id)
 
@@ -196,6 +328,35 @@ async def create_tx_batch(
                         "latest_change_id": latest_any_change_id,
                     },
                 )
+
+        # ── fast path(issue #31 batch):create-only 批。触发条件:
+        #    (1) 无 auto_ai_tag / extra_tag / attach_image_id(MCP 纯记账批必然满足);
+        #    (2) 所有 item 的 tags 名都能在 user-global UserTagProjection 一次查到
+        #        (count 相等)。任一不满足 → 走旧全量 build 路径(B2/B3 以及需新建
+        #        tag 实体的调用逻辑保持不变)。fast path 对每个 item 用空快照跑
+        #        mutator(成本 O(1),复用 `_commit_create_tx_fast` 的白盒技巧),
+        #        消除每调用 O(账本交易数) 的 snapshot build + prev 深拷贝 + 全表 diff。
+        if not req.auto_ai_tag and not req.extra_tag_name and not req.attach_image_id:
+            item_tag_names: set[str] = set()
+            for _item in req.transactions:
+                if _item.tags:
+                    item_tag_names.update(t for t in _item.tags if t)
+            tag_name_to_sync_id: dict[str, str] = {}
+            if item_tag_names:
+                tag_rows = db.scalars(
+                    select(UserTagProjection)
+                    .where(UserTagProjection.user_id == ledger.user_id)
+                    .where(UserTagProjection.name.in_(list(item_tag_names)))
+                ).all()
+                tag_name_to_sync_id = {
+                    (r.name or ""): r.sync_id
+                    for r in tag_rows
+                    if r.name and r.sync_id
+                }
+            # 全部 item tag 都能查到实体(数量相等)→ fast path。缺任一 → 走旧路径
+            # (旧路径会为缺失 tag 建实体,不再复用 projection 里已有的同步已建 tag)。
+            if len(tag_name_to_sync_id) == len(item_tag_names):
+                return _core_batch_fast(tag_name_to_sync_id=tag_name_to_sync_id)
 
         snapshot = snapshot_builder.build(db, ledger)
         prev_snapshot = {**snapshot}
