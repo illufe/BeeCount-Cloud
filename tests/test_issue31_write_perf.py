@@ -13,15 +13,75 @@ import asyncio
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from src import _mcp_internal_client
+from src import _mcp_internal_client, snapshot_builder
 from src.database import Base, get_db
 from src.main import app
 from src.mcp.tools import read_tools, write_tools
-from src.models import User
+from src.models import ReadTxProjection, SyncChange, User
+
+
+def _make_tag(client: TestClient, token: str, ledger: str, base_change_id: int, name: str) -> str:
+    res = client.post(
+        f"/api/v1/write/ledgers/{ledger}/tags",
+        json={"base_change_id": base_change_id, "name": name},
+        headers={"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"},
+    )
+    assert res.status_code == 200, res.text
+    return res.json()["entity_id"]
+
+
+def _strip_autogen(payload: dict) -> dict:
+    """Fast/slow 两条路径产出的 normalized item 只有 syncId 不同,去掉它后应逐字段一致。"""
+    out = dict(payload)
+    out.pop("syncId", None)
+    return out
+
+
+def _batch_tx_changes(TS, *sync_ids) -> list[dict]:
+    with TS() as db:
+        rows = db.scalars(
+            select(SyncChange).where(
+                SyncChange.entity_type == "transaction",
+                SyncChange.entity_sync_id.in_(list(sync_ids)),
+            )
+        ).all()
+        return [
+            {
+                "entity_type": r.entity_type,
+                "action": r.action,
+                "scope": r.scope,
+                "payload_json": _strip_autogen(r.payload_json),
+                "updated_by_device_id": r.updated_by_device_id,
+                "updated_by_user_id": r.updated_by_user_id,
+            }
+            for r in rows
+        ]
+
+
+def _batch_tx_projection_rows(TS, *sync_ids) -> list[dict]:
+    with TS() as db:
+        rows = db.scalars(
+            select(ReadTxProjection).where(
+                ReadTxProjection.sync_id.in_(list(sync_ids))
+            )
+        ).all()
+        return [
+            {
+                "tx_type": r.tx_type,
+                "amount": r.amount,
+                "happened_at": r.happened_at,
+                "note": r.note,
+                "tags_csv": r.tags_csv,
+                "tag_sync_ids_json": r.tag_sync_ids_json,
+                "created_by_user_id": r.created_by_user_id,
+                "last_edited_by_user_id": r.last_edited_by_user_id,
+            }
+            for r in rows
+        ]
 
 
 def _make_client_and_engine(monkeypatch):
@@ -323,3 +383,246 @@ def test_a3_batch_request_model_preserves_native_and_exclude_fields() -> None:
     assert payload["native_amount"] == 15
     assert payload["exclude_from_stats"] is True
     assert payload["exclude_from_budget"] is True
+
+
+# --------------------------------------------------------------------------
+# Batch create fast path(issue #31):跳过全量 snapshot build + 逐笔 deepcopy
+# --------------------------------------------------------------------------
+
+
+def test_batch_fast_vs_slow_equivalence(monkeypatch) -> None:
+    """同输入分别走 fast 与 slow 路径,产出的 SyncChange 行 + read_tx_projection 行
+    逐字段一致(sync_id / source_change_id 除外)。fast = auto_ai_tag=False 且 tag
+    已存在;slow = 带 extra_tag_name(该名字已在批内,tx payload 逐字段等价)。"""
+    client, TS = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, "equiv@example.com")
+        token = u["access_token"]
+        hdr = {"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"}
+        led_fast = _make_ledger(client, token, "Fast")
+        led_slow = _make_ledger(client, token, "Slow")
+
+        # tag 是 user-global(按 ledger.user_id,owner==写者时等价 current_user.id),
+        # 在 Fast 账本建一次,Fast/Slow 都能查到。
+        _make_tag(client, token, led_fast, 0, "Food")
+
+        txns = [
+            {"tx_type": "expense", "amount": 12.5, "happened_at": "2026-05-01T00:00:00+00:00",
+             "note": "lunch", "tags": ["Food"]},
+            {"tx_type": "income", "amount": 99.0, "happened_at": "2026-05-02T00:00:00+00:00",
+             "note": "salary", "tags": ["Food"]},
+        ]
+
+        # fast 路径:tag 存在 → 触发 fast path。
+        rf = client.post(
+            f"/api/v1/write/ledgers/{led_fast}/transactions/batch",
+            json={"base_change_id": 0, "transactions": txns, "auto_ai_tag": False},
+            headers=hdr,
+        )
+        assert rf.status_code == 200, rf.text
+        fast_ids = rf.json()["created_sync_ids"]
+        assert len(fast_ids) == 2
+
+        # slow 路径:extra_tag_name 置为批内已有名 → 触发旧全量 build 路径,但 tx
+        # payload(tags/tagIds) 与 fast 逐字段等价。
+        rs = client.post(
+            f"/api/v1/write/ledgers/{led_slow}/transactions/batch",
+            json={"base_change_id": 0, "transactions": txns,
+                  "auto_ai_tag": False, "extra_tag_name": "Food"},
+            headers=hdr,
+        )
+        assert rs.status_code == 200, rs.text
+        slow_ids = rs.json()["created_sync_ids"]
+        assert len(slow_ids) == 2
+
+        # SyncChange 行逐字段一致(仅 syncId / change_id 不同)。
+        fast_changes = _batch_tx_changes(TS, *fast_ids)
+        slow_changes = _batch_tx_changes(TS, *slow_ids)
+        assert sorted(fast_changes, key=lambda d: str(d["payload_json"].get("amount"))) == \
+            sorted(slow_changes, key=lambda d: str(d["payload_json"].get("amount")))
+
+        # read_tx_projection 行逐字段一致(仅 sync_id / source_change_id 不同)。
+        fast_rows = sorted(_batch_tx_projection_rows(TS, *fast_ids),
+                           key=lambda d: str(d["amount"]))
+        slow_rows = sorted(_batch_tx_projection_rows(TS, *slow_ids),
+                           key=lambda d: str(d["amount"]))
+        assert fast_rows == slow_rows
+
+        # 响应结构一致(字段集合相同)。
+        assert set(rf.json().keys()) == set(rs.json().keys())
+        assert rf.json()["ledger_id"] != rs.json()["ledger_id"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_batch_fast_skips_full_build(monkeypatch) -> None:
+    """fast path 不触发全量 snapshot_builder.build(记录调用次数 → fast=0);
+    slow 路径(auto_ai_tag=True)仍会调用 build(调用次数>0)。"""
+    client, _TS = _make_client_and_engine(monkeypatch)
+    calls: list = []
+    orig_build = snapshot_builder.build
+
+    def _tracking(*a, **k):
+        calls.append(1)
+        return orig_build(*a, **k)
+
+    try:
+        u = _register(client, "nobuild@example.com")
+        token = u["access_token"]
+        led = _make_ledger(client, token, "F")
+        hdr = {"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"}
+        txns = [
+            {"tx_type": "expense", "amount": 1.0 + i,
+             "happened_at": "2026-05-01T00:00:00+00:00", "tags": ["MCP"]}
+            for i in range(50)
+        ]
+        # tag 必须先存在并落库(fast 路径所有 tag 都要能在 projection 查到)。
+        _make_tag(client, token, led, 0, "MCP")
+        monkeypatch.setattr(snapshot_builder, "build", _tracking)
+
+        res = client.post(
+            f"/api/v1/write/ledgers/{led}/transactions/batch",
+            json={"base_change_id": 0, "transactions": txns, "auto_ai_tag": False},
+            headers=hdr,
+        )
+        assert res.status_code == 200, res.text
+        assert len(res.json()["created_sync_ids"]) == 50
+        # fast path:build 一次都没被调用。
+        assert calls == [], "snapshot_builder.build should NOT be called on fast path"
+
+        # slow 路径(带 auto_ai_tag=True)会调用 build。
+        n_before = len(calls)
+        res2 = client.post(
+            f"/api/v1/write/ledgers/{led}/transactions/batch",
+            json={"base_change_id": 0, "transactions": txns[:1], "auto_ai_tag": True},
+            headers=hdr,
+        )
+        assert res2.status_code == 200, res2.text
+        assert len(calls) > n_before
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_batch_fast_falls_back_when_tag_missing(monkeypatch) -> None:
+    """item 带一个账本里不存在的 tag 名 → 不满足 fast 触发条件 → 走 slow 路径
+    (build 被调用、tag 实体被创建)。"""
+    client, _TS = _make_client_and_engine(monkeypatch)
+    calls: list = []
+    orig_build = snapshot_builder.build
+
+    def _wrapped(*a, **k):
+        calls.append(1)
+        return orig_build(*a, **k)
+
+    monkeypatch.setattr(snapshot_builder, "build", _wrapped)
+    try:
+        u = _register(client, "fallback@example.com")
+        token = u["access_token"]
+        led = _make_ledger(client, token, "FB")
+        hdr = {"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"}
+        res = client.post(
+            f"/api/v1/write/ledgers/{led}/transactions/batch",
+            json={
+                "base_change_id": 0,
+                "transactions": [{
+                    "tx_type": "expense", "amount": 8.0,
+                    "happened_at": "2026-05-03T00:00:00+00:00", "tags": ["BrandNew"],
+                }],
+                "auto_ai_tag": False,
+            },
+            headers=hdr,
+        )
+        assert res.status_code == 200, res.text
+        # slow 路径:build 被调用 + 新 tag 实体建出来了。
+        assert len(calls) == 1
+        tags = client.get(f"/api/v1/read/ledgers/{led}/tags", headers=hdr).json()
+        assert any(t["name"] == "BrandNew" for t in tags), tags
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_batch_fast_atomicity_on_invalid_item(monkeypatch) -> None:
+    """批量中第 2 笔 tx_type 非法 → 400 BATCH_TX_INVALID + failed_index=1,mutator
+    阶段(纯内存)就要抛错,sync_changes / read_tx_projection 均 0 新行。"""
+    client, TS = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, "atomic@example.com")
+        token = u["access_token"]
+        led = _make_ledger(client, token, "AT")
+        hdr = {"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"}
+        _make_tag(client, token, led, 0, "Food")  # 满足 fast 触发(所有 tag 存在)
+
+        res = client.post(
+            f"/api/v1/write/ledgers/{led}/transactions/batch",
+            json={
+                "base_change_id": 0,
+                "transactions": [
+                    {"tx_type": "expense", "amount": 1.0,
+                     "happened_at": "2026-05-01T00:00:00+00:00"},
+                    {"tx_type": "savings", "amount": 2.0,  # 非法 tx_type → mutator ValueError
+                     "happened_at": "2026-05-01T00:00:00+00:00"},
+                ],
+                "auto_ai_tag": False,
+            },
+            headers=hdr,
+        )
+        assert res.status_code == 400, res.text
+        body = res.json()
+        assert body["error_code"] == "BATCH_TX_INVALID"
+        assert body["failed_index"] == 1
+
+        # 未写任何 DB 行。
+        with TS() as db:
+            n_changes = db.scalar(
+                select(func.count(SyncChange.change_id)).where(
+                    SyncChange.entity_type == "transaction"
+                )
+            )
+            n_tx = db.scalar(select(func.count(ReadTxProjection.ledger_id)))
+            assert n_changes == 0
+            assert n_tx == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_batch_fast_idempotent_replay(monkeypatch) -> None:
+    """同 Idempotency-Key + 同 payload 第二次请求返回 replay,不重复写行。"""
+    client, TS = _make_client_and_engine(monkeypatch)
+    try:
+        u = _register(client, "idfat@example.com")
+        token = u["access_token"]
+        led = _make_ledger(client, token, "ID")
+        hdr = {"Authorization": f"Bearer {token}", "X-Device-ID": "d-web"}
+        body = {
+            "base_change_id": 0,
+            "transactions": [{
+                "tx_type": "expense", "amount": 5.0,
+                "happened_at": "2026-05-01T00:00:00+00:00",
+            }],
+            "auto_ai_tag": False,
+        }
+        hdr_idem = {**hdr, "Idempotency-Key": "key-idem-fast-1"}
+        r1 = client.post(f"/api/v1/write/ledgers/{led}/transactions/batch",
+                         json=body, headers=hdr_idem)
+        assert r1.status_code == 200, r1.text
+        ids1 = r1.json()["created_sync_ids"]
+
+        r2 = client.post(f"/api/v1/write/ledgers/{led}/transactions/batch",
+                         json=body, headers=hdr_idem)
+        assert r2.status_code == 200, r2.text
+        ids2 = r2.json()["created_sync_ids"]
+        # replay 返回与新请求相同(created_sync_ids 来自 replay 的 response_json)。
+        assert ids2 == ids1
+
+        # 行没重复写。
+        with TS() as db:
+            n_changes = db.scalar(
+                select(func.count(SyncChange.change_id)).where(
+                    SyncChange.entity_type == "transaction"
+                )
+            )
+            n_tx = db.scalar(select(func.count(ReadTxProjection.ledger_id)))
+            assert n_changes == 1
+            assert n_tx == 1
+    finally:
+        app.dependency_overrides.clear()
