@@ -18,6 +18,22 @@ docker compose up -d --build
 - Metrics: `GET /metrics`
 - Compose includes container health checks (ready probe)
 
+## Bill inbox (account-scoped intake)
+
+- `BILL_INBOX_DIR` defaults to `./data/bill-inbox`; the production image sets `/data/bill-inbox`.
+  The existing `/data` volume includes this queue, so no extra mount is required.
+- `POST /api/v1/bill-inbox/upload` accepts PDF, CSV, TSV, or XLSX only, requires explicit `ledger_id`
+  and `account_id`, and permits current-ledger Owner/Editor members. It returns `ready` or a scoped
+  `duplicate`; it never creates transactions or account changes.
+- The server streams into `.staging`, writes a manifest, fsyncs, and atomically commits to
+  `ready/<ingest_id>`. The queue has no DB table, Drive integration, or parser worker; the
+  single-process lock is its concurrency ceiling.
+- Full `/data` backups include `.staging`, `ready`, `processing`, `done`, and `blocked`; preserve all
+  queue states through upgrades and rollback. Smoke checks may call `/ready`, `/healthz`, and inspect
+  OpenAPI, but must not upload an authenticated or private bill; an unauthenticated multipart request
+  must be rejected.
+- Keep direct HTTP on a trusted LAN. Use TLS and access control before any remote exposure.
+
 ## 3) Backup
 
 SQLite:

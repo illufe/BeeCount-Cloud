@@ -79,6 +79,16 @@
 - Dark / light mode with personalized primary color
 - Admin panel — devices, health, sync errors, backup artifacts, **live server logs**
 
+### Bill inbox (intake only)
+
+- The account page accepts PDF, CSV, TSV, and XLSX for an explicit ledger and account;
+  current-ledger Owner/Editor members may upload, while Viewers are rejected.
+- The browser JWT calls `POST /api/v1/bill-inbox/upload`; the server uses the existing `/data` volume,
+  writes through `.staging`, fsyncs, and atomically commits a filesystem queue, returning `ready` or
+  `(ledger_id, account_id, sha256)`-scoped `duplicate`.
+- This surface never executes transactions and has no Google Drive, database queue, or parser Agent.
+  Direct HTTP is for a trusted LAN only; remote access needs TLS.
+
 ### Admin & Ops
 
 - In-memory ring buffer log viewer (level / source / keyword filter + auto-refresh)

@@ -34,6 +34,14 @@ Server 端的存储分两层:
 
 ---
 
+### 同步之外的账单收件箱
+
+账户级 `POST /api/v1/bill-inbox/upload` 是收件入口，不属于同步投影或
+`sync_changes` 事件流。浏览器 JWT 显式提交 `ledger_id` 和 `account_id`；服务端把文件和
+manifest 写入既有 `/data/bill-inbox` 文件系统队列，并按范围使用 SHA-256 防重。它不创建
+数据库队列表、同步事件、Drive 对象或交易。未来解析必须先把对账结果交给用户复核，再执行
+已批准的交易计划。
+
 ## 2. 目录总览
 
 ```

@@ -107,6 +107,13 @@ Mobile 端(Flutter)和 Web 端(React)各自有仓,各自有 CLAUDE.md:
 `reconciliationStatus` 使用同一条 user-global 跨层链路，也不能改变余额、
 统计或净资产。未携带字段表示保留现值；显式 `null` 或空字符串表示清空。
 
+### 账单收件箱边界
+
+`POST /api/v1/bill-inbox/upload` 是浏览器 JWT 保护的账户级 intake-only 路由，要求显式
+`ledger_id`、`account_id`，只允许当前账本 Owner/Editor；文件进入 `/data/bill-inbox` 并返回
+`ready|duplicate`，不得直接触发解析、交易或账户写入。后续解析必须接入人工复核、批准、备份、
+幂等执行和回查。
+
 ## 工具
 
 - `python -m pytest tests/` 跑全部服务端测试

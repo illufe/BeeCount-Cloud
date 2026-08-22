@@ -79,6 +79,16 @@
 - 深浅色主题 + 个性化主题色
 - 管理面板 — 设备 / 健康 / 同步错误 / 备份归档 / **实时服务端日志**
 
+### 账单收件箱（仅收件）
+
+- 账户页按显式账本和账户提供 PDF、CSV、TSV、XLSX 上传；当前账本的 Owner/Editor 可用，
+  Viewer 被拒绝。
+- 浏览器 JWT 调用 `POST /api/v1/bill-inbox/upload`；服务端写入现有 `/data` 卷，经 `.staging`、
+  fsync 和原子提交落到文件系统队列，按 `(ledger_id, account_id, sha256)` 返回 `ready` 或
+  `duplicate`。
+- 该入口不执行交易，不使用 Google Drive、数据库队列或解析 Agent；直接 HTTP 只应暴露在受信任
+  局域网，远程访问需要 TLS。
+
 ### 管理与运维
 
 - 内存 ring buffer 日志查看器(级别 / 来源 / 关键词过滤 + 自动刷新)
