@@ -2,11 +2,15 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import {
+  fetchExchangeRateOverrides,
+  fetchExchangeRates,
   fetchWorkspaceAccounts,
   fetchWorkspaceAnalytics,
   fetchWorkspaceCategories,
   fetchWorkspaceLedgerCounts,
   fetchWorkspaceTags,
+  type ExchangeRateOverride,
+  type ExchangeRatesResponse,
   type ReadBudget,
   type WorkspaceAccount,
   type WorkspaceAnalytics,
@@ -33,8 +37,11 @@ import { dispatchOpenDetailCategory } from '../../lib/txDialogEvents'
  */
 export function OverviewPage() {
   const navigate = useNavigate()
-  const { token } = useAuth()
+  const { token, profileMe } = useAuth()
   const { activeLedgerId, currentLedger } = useLedgers()
+  const assetBaseCurrency = (
+    profileMe?.primary_currency || currentLedger?.currency || 'CNY'
+  ).toUpperCase()
 
   // Overview 的所有数据按当前账本分桶 —— 切账本时读对应桶,没命中显示空
   // 态后台 refetch。accounts / tags 实体本身是 user-global,但首页 Top 卡片
@@ -43,6 +50,14 @@ export function OverviewPage() {
   const bucket = activeLedgerId || '__none__'
   const [accounts, setAccounts] = usePageCache<WorkspaceAccount[]>(`overview:${bucket}:accounts`, [])
   const [tags, setTags] = usePageCache<WorkspaceTag[]>(`overview:${bucket}:tags`, [])
+  const [assetRates, setAssetRates] = usePageCache<ExchangeRatesResponse | null>(
+    `overview:rates:${assetBaseCurrency}`,
+    null,
+  )
+  const [assetRateOverrides, setAssetRateOverrides] = usePageCache<ExchangeRateOverride[]>(
+    `overview:rateOverrides:${assetBaseCurrency}`,
+    [],
+  )
   // 当前账本下的全部分类(用于把 TopCategoriesList 里的 category_name 反查
   // 成完整 WorkspaceCategory,从而打开富统计详情弹窗)。activeLedgerId 变了
   // 重拉,避免错按本来不在当前账本的分类查 stats。
@@ -103,10 +118,25 @@ export function OverviewPage() {
       ])
       setAccounts(a)
       setTags(tg)
+
+      // 资产构成使用当前主币种；缺汇率时由 mergeGroupsToBase 整币种剔除，绝不按 1:1 混算。
+      const currencies = new Set(a.map((row) => (row.currency || 'CNY').toUpperCase()))
+      const needsRates = [...currencies].some((currency) => currency !== assetBaseCurrency)
+      if (needsRates) {
+        const [rates, overrides] = await Promise.all([
+          fetchExchangeRates(token, assetBaseCurrency).catch(() => null),
+          fetchExchangeRateOverrides(token).catch(() => [] as ExchangeRateOverride[]),
+        ])
+        setAssetRates(rates)
+        setAssetRateOverrides(overrides)
+      } else {
+        setAssetRates(null)
+        setAssetRateOverrides([])
+      }
     } catch {
       // dashboard 静默降级
     }
-  }, [token, activeLedgerId])
+  }, [token, activeLedgerId, assetBaseCurrency])
 
   const loadCategories = useCallback(async () => {
     if (!activeLedgerId) {
@@ -291,6 +321,9 @@ export function OverviewPage() {
   return (
     <OverviewSection
       accounts={accounts}
+      assetBaseCurrency={assetBaseCurrency}
+      assetRates={assetRates}
+      assetRateOverrides={assetRateOverrides}
       tags={tags}
       currentMonthSummary={currentMonthSummary}
       currentMonthSeries={currentMonthSeries}

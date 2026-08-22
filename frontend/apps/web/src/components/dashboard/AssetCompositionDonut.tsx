@@ -1,56 +1,52 @@
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import type { WorkspaceAccount } from '@beecount/api-client'
+import type {
+  ExchangeRateOverride,
+  ExchangeRatesResponse,
+  WorkspaceAccount,
+} from '@beecount/api-client'
 import { Card, CardContent, CardHeader, CardTitle, useLocale, useT } from '@beecount/ui'
+import { computeTypeGroups, mergeGroupsToBase, splitByCurrency } from '@beecount/web-features'
 
 import { formatCompactTick } from '../../i18n/format'
 
 interface Props {
   accounts: WorkspaceAccount[]
+  baseCurrency: string
+  rates: ExchangeRatesResponse | null
+  rateOverrides: ExchangeRateOverride[]
 }
 
-// 与 AccountsPanel 里的 TRADABLE / VALUATION 分组 + 颜色一致。
-const TYPE_META: Record<string, { color: string; group: 'asset' | 'liability' }> = {
-  cash: { color: '#10b981', group: 'asset' },
-  bank_card: { color: '#3b82f6', group: 'asset' },
-  credit_card: { color: '#ef4444', group: 'liability' },
-  alipay: { color: '#06b6d4', group: 'asset' },
-  wechat: { color: '#22c55e', group: 'asset' },
-  other: { color: '#64748b', group: 'asset' },
-  real_estate: { color: '#8b5cf6', group: 'asset' },
-  vehicle: { color: '#f59e0b', group: 'asset' },
-  investment: { color: '#ec4899', group: 'asset' },
-  insurance: { color: '#14b8a6', group: 'asset' },
-  social_fund: { color: '#84cc16', group: 'asset' },
-  loan: { color: '#dc2626', group: 'liability' }
-}
-
-export function AssetCompositionDonut({ accounts }: Props) {
+export function AssetCompositionDonut({
+  accounts,
+  baseCurrency,
+  rates,
+  rateOverrides,
+}: Props) {
   const t = useT()
   const { locale } = useLocale()
   const chinese = locale.startsWith('zh')
-  // 按类型**带符号**累加(与 assetAggregation 的负债符号口径一致:欠款为负、
-  // 溢缴为正,透支资产为负),饼图分段才对类型合计取 abs 当体量 —— 绝不逐账户
-  // abs,否则同类型内正负互抵的账户会被虚增。
-  const totals = new Map<string, number>()
-  for (const a of accounts) {
-    const key = a.account_type || 'other'
-    // 用 balance(= initial_balance + 净流水)而非 initial_balance。用户常常
-    // 把初始余额留 0,靠日常记账累积现金/微信/支付宝等账户流水 —— 若只看
-    // initial_balance,donut 会全空;资产页走 balance 兜底所以正常。
-    const raw = typeof a.balance === 'number' && a.balance !== null
-      ? a.balance
-      : a.initial_balance ?? 0
-    totals.set(key, (totals.get(key) || 0) + raw)
-  }
-  const allRows = Array.from(totals.entries())
-    .map(([type, signed]) => ({
-      type,
+  // 按币种分组后复用资产页的类型聚合 + FX 合并 helper。缺汇率的币种由
+  // mergeGroupsToBase 整体剔除,不会静默按 1:1 混入当前主币种。
+  const groups = mergeGroupsToBase(
+    [...splitByCurrency(accounts)].map(([currency, rows]) => ({
+      currency,
+      groups: computeTypeGroups(rows, t),
+    })),
+    baseCurrency.toUpperCase(),
+    rates,
+    rateOverrides,
+  )
+  const allRows = groups.map((group) => {
+    const signed = group.subtotals.reduce((sum, subtotal) => sum + subtotal.value, 0)
+    return {
+      type: group.type,
       signed,
       value: Math.abs(signed),
-      label: TYPE_META[type] ? t(`accountType.${type}` as never) : type,
-      color: TYPE_META[type]?.color || '#94a3b8',
-      group: TYPE_META[type]?.group || 'asset'
-    }))
+      label: group.label,
+      color: group.color,
+      group: group.isLiability ? 'liability' : 'asset',
+    }
+  })
   // 「资产构成」扇区/图例只含资产类:负债(信用卡/贷款)不进饼图,只在中心脚注体现。
   // 与 App 端 asset_composition_chart 一致(资产构成 = 纯资产,不含负债)。
   const data = allRows

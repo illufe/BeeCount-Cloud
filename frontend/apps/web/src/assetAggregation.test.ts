@@ -202,6 +202,32 @@ describe('mergeGroupsToBase — 折算合并构成', () => {
     expect(bank.subtotals[0].value).toBeCloseTo(200)
   })
 
+  it('不动产按汇率折算,缺汇率的不动产不按 1:1 计入', () => {
+    const buckets = [
+      { currency: 'CNY', groups: [group({ type: 'cash', value: 100, currency: 'CNY' })] },
+      { currency: 'USD', groups: [group({ type: 'real_estate', value: 100, currency: 'USD' })] },
+      { currency: 'EUR', groups: [group({ type: 'real_estate', value: 50, currency: 'EUR' })] },
+    ]
+    const merged = mergeGroupsToBase(
+      buckets,
+      'CNY',
+      auto({ USD: String(1 / 7) }),
+      [],
+    )
+    const realEstate = merged.find((g) => g.type === 'real_estate')!
+    const totalAsset = merged
+      .filter((g) => !g.isLiability)
+      .reduce(
+        (sum, g) => sum + g.subtotals.reduce((subtotal, item) => subtotal + item.value, 0),
+        0,
+      )
+
+    expect(realEstate.subtotals[0].currency).toBe('CNY')
+    expect(realEstate.subtotals[0].value).toBeCloseTo(700)
+    expect(totalAsset).toBeCloseTo(800)
+    expect(realEstate.subtotals[0].value).not.toBe(750)
+  })
+
   it('缺失汇率的整币种被剔除,绝不按 1 折入', () => {
     // EUR 既无 override 也不在 auto.rates → 整币种丢弃。
     const buckets = [
