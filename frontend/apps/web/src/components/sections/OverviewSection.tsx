@@ -1,4 +1,6 @@
 import type {
+  ExchangeRateOverride,
+  ExchangeRatesResponse,
   ReadBudget,
   WorkspaceAccount,
   WorkspaceAnalytics,
@@ -27,6 +29,9 @@ import { TopCategoriesList } from '../dashboard/TopCategoriesList'
 
 interface Props {
   accounts: WorkspaceAccount[]
+  assetBaseCurrency: string
+  assetRates: ExchangeRatesResponse | null
+  assetRateOverrides: ExchangeRateOverride[]
   tags: WorkspaceTag[]
   currentMonthSummary: WorkspaceAnalyticsSummary | null
   currentMonthSeries: WorkspaceAnalyticsSeriesItem[]
@@ -61,6 +66,9 @@ interface Props {
  */
 export function OverviewSection({
   accounts,
+  assetBaseCurrency,
+  assetRates,
+  assetRateOverrides,
   tags,
   currentMonthSummary,
   currentMonthSeries,
@@ -125,7 +133,12 @@ export function OverviewSection({
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <AssetCompositionDonut accounts={accounts} />
+        <AssetCompositionDonut
+          accounts={accounts}
+          baseCurrency={assetBaseCurrency}
+          rates={assetRates}
+          rateOverrides={assetRateOverrides}
+        />
         <MonthlyTrendBars data={analyticsData?.series || []} />
       </div>
 
