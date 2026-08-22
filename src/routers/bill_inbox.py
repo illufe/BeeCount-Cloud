@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -24,6 +25,8 @@ router = APIRouter()
 _WRITE_SCOPE_DEP = require_any_scopes(SCOPE_APP_WRITE, SCOPE_WEB_WRITE)
 _ALLOWED_SUFFIXES = {".pdf", ".csv", ".tsv", ".xlsx"}
 _CHUNK_BYTES = 1024 * 1024
+_QUEUE_STATES = ("ready", "processing", "done", "blocked")
+_COMMIT_LOCK = threading.Lock()
 
 
 class BillInboxUploadOut(BaseModel):
@@ -44,6 +47,56 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _find_duplicate_ingest_id(root: Path, *, ledger_id: str, account_id: str, sha256: str) -> str | None:
+    for state in _QUEUE_STATES:
+        state_root = root / state
+        try:
+            candidates = sorted(path for path in state_root.iterdir() if path.is_dir())
+        except OSError:
+            continue
+        for candidate in candidates:
+            manifest_path = candidate / "manifest.json"
+            try:
+                with manifest_path.open(encoding="utf-8") as source:
+                    manifest = json.load(source)
+            except (OSError, TypeError, ValueError, UnicodeError):
+                continue
+            if not isinstance(manifest, dict):
+                continue
+            if (
+                manifest.get("ingest_id") == candidate.name
+                and manifest.get("ledger_id") == ledger_id
+                and manifest.get("account_id") == account_id
+                and manifest.get("sha256") == sha256
+            ):
+                return candidate.name
+    return None
+
+
+def _commit_ready_upload(
+    root: Path,
+    *,
+    staging_dir: Path,
+    ready_dir: Path,
+    ledger_id: str,
+    account_id: str,
+    sha256: str,
+) -> str | None:
+    # ponytail: one-process lock; use shared queue/lock coordination if workers scale out.
+    with _COMMIT_LOCK:
+        duplicate_id = _find_duplicate_ingest_id(
+            root,
+            ledger_id=ledger_id,
+            account_id=account_id,
+            sha256=sha256,
+        )
+        if duplicate_id is not None:
+            return duplicate_id
+        os.replace(staging_dir, ready_dir)
+        _fsync_directory(root / "ready")
+        return None
 
 
 def _safe_original_filename(raw: str | None) -> str:
@@ -162,8 +215,26 @@ async def upload_bill(
             target.flush()
             os.fsync(target.fileno())
         _fsync_directory(staging_dir)
-        os.replace(staging_dir, ready_dir)
-        _fsync_directory(ready_root)
+        duplicate_id = _commit_ready_upload(
+            root,
+            staging_dir=staging_dir,
+            ready_dir=ready_dir,
+            ledger_id=ledger.external_id,
+            account_id=account_id,
+            sha256=digest.hexdigest(),
+        )
+        if duplicate_id is not None:
+            return BillInboxUploadOut(
+                status="duplicate",
+                ingest_id=duplicate_id,
+                ledger_id=ledger.external_id,
+                account_id=account_id,
+                original_filename=original_filename,
+                content_type=content_type,
+                size=size,
+                sha256=digest.hexdigest(),
+                uploaded_at=uploaded_at,
+            )
         committed = True
     finally:
         if not committed:

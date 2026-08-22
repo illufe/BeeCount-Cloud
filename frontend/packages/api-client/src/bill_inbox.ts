@@ -2,7 +2,7 @@ import { extractApiError } from './errors'
 import { API_BASE } from './http'
 
 export type BillInboxUpload = {
-  status: 'ready'
+  status: 'ready' | 'duplicate'
   ingest_id: string
   ledger_id: string
   account_id: string

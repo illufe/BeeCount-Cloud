@@ -29,12 +29,14 @@ export function BillUploadDialog({ open, onOpenChange, account, ledgerId, token 
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const [resultStatus, setResultStatus] = useState<'ready' | 'duplicate' | null>(null)
 
   const reset = () => {
     setFile(null)
     setPending(false)
     setMessage(null)
     setFailed(false)
+    setResultStatus(null)
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -53,8 +55,11 @@ export function BillUploadDialog({ open, onOpenChange, account, ledgerId, token 
     setFailed(false)
     setMessage(null)
     try {
-      await uploadBill(token, { ledgerId, accountId: account.id, file })
-      setMessage(t('accounts.bill.success'))
+      const result = await uploadBill(token, { ledgerId, accountId: account.id, file })
+      setResultStatus(result.status)
+      setMessage(
+        t(result.status === 'duplicate' ? 'accounts.bill.duplicate' : 'accounts.bill.success'),
+      )
     } catch (error) {
       setFailed(true)
       setMessage(localizeError(error, t))
@@ -72,34 +77,61 @@ export function BillUploadDialog({ open, onOpenChange, account, ledgerId, token 
             {t('accounts.bill.description', { account: account?.name || '' })}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="bill-upload-file">{t('accounts.bill.file')}</Label>
-          <input
-            id="bill-upload-file"
-            type="file"
-            accept=".pdf,.csv,.tsv,.xlsx"
-            disabled={pending}
-            onChange={(event) => {
-              setFile(event.target.files?.[0] || null)
-              setMessage(null)
-              setFailed(false)
-            }}
-            className="block w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-muted-foreground">{t('accounts.bill.formats')}</p>
-          {message ? (
-            <p className={`text-sm ${failed ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {message}
+        {resultStatus ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`rounded-md border p-4 text-sm ${
+              resultStatus === 'duplicate'
+                ? 'border-amber-500/50 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+                : 'border-green-500/50 bg-green-500/10 text-green-900 dark:text-green-200'
+            }`}
+          >
+            <p className="font-semibold">
+              {t(
+                resultStatus === 'duplicate'
+                  ? 'accounts.bill.duplicateTitle'
+                  : 'accounts.bill.successTitle',
+              )}
             </p>
-          ) : null}
-        </div>
+            <p className="mt-1">{message}</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="bill-upload-file">{t('accounts.bill.file')}</Label>
+            <input
+              id="bill-upload-file"
+              type="file"
+              accept=".pdf,.csv,.tsv,.xlsx"
+              disabled={pending}
+              onChange={(event) => {
+                setFile(event.target.files?.[0] || null)
+                setMessage(null)
+                setFailed(false)
+              }}
+              className="block w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
+            <p className="text-xs text-muted-foreground">{t('accounts.bill.formats')}</p>
+            {message ? (
+              <p className={`text-sm ${failed ? 'text-destructive' : 'text-muted-foreground'}`}>
+                {message}
+              </p>
+            ) : null}
+          </div>
+        )}
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={() => handleOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          <Button disabled={pending} onClick={() => void submit()}>
-            {pending ? t('accounts.bill.uploading') : t('accounts.bill.upload')}
-          </Button>
+          {resultStatus ? (
+            <Button onClick={() => handleOpenChange(false)}>{t('common.done')}</Button>
+          ) : (
+            <>
+              <Button variant="outline" disabled={pending} onClick={() => handleOpenChange(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button disabled={pending} onClick={() => void submit()}>
+                {pending ? t('accounts.bill.uploading') : t('accounts.bill.upload')}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

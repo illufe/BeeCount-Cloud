@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,6 +14,7 @@ from src.config import get_settings
 from src.database import Base, get_db
 from src.main import app
 from src.models import Ledger, LedgerMember, UserAccountProjection
+from src.routers.bill_inbox import _commit_ready_upload
 
 
 @pytest.fixture()
@@ -83,11 +86,38 @@ def _seed_ledger(session_factory, owner_id: str, *, member_id: str | None = None
         session.close()
 
 
-def _upload(client: TestClient, token: str, filename: str, payload: bytes):
+def _seed_second_scope(session_factory, owner_id: str) -> None:
+    session = session_factory()
+    try:
+        session.add(
+            Ledger(
+                id="ledger-db-id-2",
+                user_id=owner_id,
+                external_id="ledger-2",
+                name="Second",
+                currency="CNY",
+            )
+        )
+        session.add(LedgerMember(ledger_id="ledger-db-id-2", user_id=owner_id, role="owner"))
+        session.add(UserAccountProjection(user_id=owner_id, sync_id="account-2", name="Second bank"))
+        session.commit()
+    finally:
+        session.close()
+
+
+def _upload(
+    client: TestClient,
+    token: str,
+    filename: str,
+    payload: bytes,
+    *,
+    ledger_id: str = "ledger-1",
+    account_id: str = "account-1",
+):
     return client.post(
         "/api/v1/bill-inbox/upload",
         headers={"Authorization": f"Bearer {token}"},
-        data={"ledger_id": "ledger-1", "account_id": "account-1"},
+        data={"ledger_id": ledger_id, "account_id": account_id},
         files={"file": (filename, payload, "application/pdf")},
     )
 
@@ -120,6 +150,112 @@ def test_upload_writes_durable_ready_artifact_and_manifest(bill_harness):
     assert manifest["size"] == len(b"%PDF-1.7\nstatement")
     assert manifest["sha256"] == body["sha256"]
     assert not list((root / ".staging").iterdir())
+
+
+def test_sequential_duplicate_returns_existing_ingest_without_new_ready_entry(bill_harness):
+    client, session_factory, root = bill_harness
+    owner = _register(client, "owner-duplicate@example.com")
+    _seed_ledger(session_factory, owner["user"]["id"])
+    payload = b"%PDF-1.7\nduplicate"
+
+    first = _upload(client, owner["access_token"], "statement.pdf", payload)
+    second = _upload(client, owner["access_token"], "renamed.pdf", payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["status"] == "ready"
+    assert second.json()["status"] == "duplicate"
+    assert second.json()["ingest_id"] == first.json()["ingest_id"]
+    assert len(_ready_entries(root)) == 1
+    assert not list((root / ".staging").iterdir())
+
+
+def test_duplicate_fingerprint_is_scoped_to_ledger_and_account(bill_harness):
+    client, session_factory, root = bill_harness
+    owner = _register(client, "owner-scope@example.com")
+    _seed_ledger(session_factory, owner["user"]["id"])
+    _seed_second_scope(session_factory, owner["user"]["id"])
+    payload = b"%PDF-1.7\nscoped"
+
+    first = _upload(client, owner["access_token"], "statement.pdf", payload)
+    other_account = _upload(
+        client,
+        owner["access_token"],
+        "statement.pdf",
+        payload,
+        account_id="account-2",
+    )
+    other_ledger = _upload(
+        client,
+        owner["access_token"],
+        "statement.pdf",
+        payload,
+        ledger_id="ledger-2",
+        account_id="account-2",
+    )
+
+    assert first.json()["status"] == "ready"
+    assert other_account.json()["status"] == "ready"
+    assert other_ledger.json()["status"] == "ready"
+    assert len(_ready_entries(root)) == 3
+
+
+def test_malformed_manifest_is_ignored_during_duplicate_scan(bill_harness):
+    client, session_factory, root = bill_harness
+    owner = _register(client, "owner-malformed@example.com")
+    _seed_ledger(session_factory, owner["user"]["id"])
+    malformed = root / "ready" / "malformed"
+    malformed.mkdir(parents=True)
+    (malformed / "manifest.json").write_text("{not-json", encoding="utf-8")
+
+    response = _upload(client, owner["access_token"], "statement.pdf", b"%PDF")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ready"
+    assert len(_ready_entries(root)) == 2
+
+
+def test_concurrent_identical_commits_create_one_ready_entry(bill_harness):
+    _, _, root = bill_harness
+    (root / ".staging").mkdir(parents=True)
+    (root / "ready").mkdir(parents=True)
+
+    def stage(ingest_id: str) -> tuple[Path, Path]:
+        staging = root / ".staging" / ingest_id
+        staging.mkdir()
+        (staging / "source.pdf").write_bytes(b"same")
+        (staging / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "ingest_id": ingest_id,
+                    "ledger_id": "ledger-1",
+                    "account_id": "account-1",
+                    "sha256": "a" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return staging, root / "ready" / ingest_id
+
+    staged = [stage("ingest-a"), stage("ingest-b")]
+
+    def commit(paths: tuple[Path, Path]) -> str | None:
+        staging, ready = paths
+        return _commit_ready_upload(
+            root,
+            staging_dir=staging,
+            ready_dir=ready,
+            ledger_id="ledger-1",
+            account_id="account-1",
+            sha256="a" * 64,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(commit, staged))
+
+    assert sum(result is None for result in results) == 1
+    assert sum(result is not None for result in results) == 1
+    assert len(_ready_entries(root)) == 1
 
 
 def test_upload_rejects_invalid_account_and_viewer_without_ready_artifact(bill_harness):
