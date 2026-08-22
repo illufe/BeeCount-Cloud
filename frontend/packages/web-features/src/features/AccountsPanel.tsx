@@ -45,6 +45,8 @@ type MobileStyleAssetsProps = {
   onDelete?: (row: ReadAccount) => void
   /** 点卡片（非编辑/删除按钮）：外层用来打开"账户详情+交易列表"弹窗。 */
   onClickAccount?: (row: ReadAccount) => void
+  /** 从具体账户卡上传待复核账单。 */
+  onUploadBill?: (row: ReadAccount) => void
   /** "新建账户"按钮回调 — 渲染在 stats 卡片下方,跟分组列表之间。 */
   onCreate?: () => void
   /** true 时跳过多币种「每币种一张卡」网格区(折算汇总视图接管了多币种展示);
@@ -66,6 +68,7 @@ function MobileStyleAssets({
   onEdit,
   onDelete,
   onClickAccount,
+  onUploadBill,
   onCreate,
   hideCurrencyCards = false,
   members = []
@@ -195,6 +198,7 @@ function MobileStyleAssets({
                       onEdit={() => onEdit(row)}
                       onDelete={onDelete ? () => onDelete(row) : undefined}
                       onClick={onClickAccount ? () => onClickAccount(row) : undefined}
+                      onUploadBill={onUploadBill ? () => onUploadBill(row) : undefined}
                       responsibleLabel={members.find((member) => member.user_id === row.responsible_user_id)?.display_name
                         || members.find((member) => member.user_id === row.responsible_user_id)?.email
                         || (row.responsible_user_id ? row.responsible_user_id.slice(0, 6) : undefined)}
@@ -432,6 +436,7 @@ function BankCardTile({
   onEdit,
   onDelete,
   onClick,
+  onUploadBill,
   responsibleLabel
 }: {
   row: ReadAccount & AccountStats
@@ -441,6 +446,7 @@ function BankCardTile({
   onEdit: () => void
   onDelete?: () => void
   onClick?: () => void
+  onUploadBill?: () => void
   responsibleLabel?: string
 }) {
   const t = useT()
@@ -659,6 +665,18 @@ function BankCardTile({
             className="rounded bg-black/35 px-1.5 py-0.5 text-[10px] text-white backdrop-blur hover:bg-destructive/60"
           >
             {t('common.delete')}
+          </button>
+        ) : null}
+        {onUploadBill ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onUploadBill()
+            }}
+            className="rounded bg-black/35 px-1.5 py-0.5 text-[10px] text-white backdrop-blur hover:bg-primary/80"
+          >
+            {t('accounts.bill.upload')}
           </button>
         ) : null}
       </div>
@@ -902,6 +920,7 @@ type AccountsPanelProps = {
   onEdit: (row: ReadAccount) => void
   onDelete?: (row: ReadAccount) => void
   onClickAccount?: (row: ReadAccount) => void
+  onUploadBill?: (row: ReadAccount) => void
   /** true 时跳过多币种「每币种一张卡」网格区(用于折算汇总视图);缺省 false,
    *  其它调用方零影响。详见 MobileStyleAssets。 */
   hideCurrencyCards?: boolean
@@ -919,6 +938,7 @@ export function AccountsPanel({
   onEdit,
   onDelete,
   onClickAccount,
+  onUploadBill,
   hideCurrencyCards = false,
   members = []
 }: AccountsPanelProps) {
@@ -993,6 +1013,7 @@ export function AccountsPanel({
           }}
           onDelete={onDelete}
           onClickAccount={onClickAccount}
+          onUploadBill={onUploadBill}
           onCreate={handleOpenCreate}
           hideCurrencyCards={hideCurrencyCards}
           members={members}
@@ -1008,12 +1029,19 @@ export function AccountsPanel({
             {hiddenRows.map((row) => (
               <div key={row.id} className="flex items-center justify-between gap-2 py-2 text-sm">
                 <span className="truncate">{row.name} · {row.currency || 'CNY'}</span>
-                <Button size="sm" variant="outline" disabled={!canManage} onClick={() => {
-                  onEdit(row)
-                  setOpen(true)
-                }}>
-                  {t('accounts.hidden.manage')}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {onUploadBill ? (
+                    <Button size="sm" variant="outline" onClick={() => onUploadBill(row)}>
+                      {t('accounts.bill.upload')}
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="outline" disabled={!canManage} onClick={() => {
+                    onEdit(row)
+                    setOpen(true)
+                  }}>
+                    {t('accounts.hidden.manage')}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>

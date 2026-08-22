@@ -49,6 +49,7 @@ import {
 } from '@beecount/web-features'
 
 import { NetWorthTrend } from '../../components/dashboard/NetWorthTrend'
+import { BillUploadDialog } from '../../components/BillUploadDialog'
 import { ASSET_VIEW_KEY, type AssetView } from '../../lib/assetViewPrefs'
 import { routePath } from '../../state/router'
 import { dispatchOpenDetailAccount } from '../../lib/txDialogEvents'
@@ -107,6 +108,7 @@ export function AccountsPage() {
   // confirm dialog 直接读它,不再发额外请求。
   const [pendingDelete, setPendingDelete] = useState<WorkspaceAccount | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [billUploadAccount, setBillUploadAccount] = useState<ReadAccount | null>(null)
   const [members, setMembers] = useState<LedgerMember[]>([])
   const [responsibleFilter, setResponsibleFilter] = useState('all')
   useEffect(() => {
@@ -158,6 +160,22 @@ export function AccountsPage() {
   const notifySuccess = useCallback(
     (msg: string) => toast.success(msg, t('notice.success')),
     [toast, t]
+  )
+
+  const canUploadBill = Boolean(
+    activeLedgerId &&
+      currentLedger &&
+      (currentLedger.role === 'owner' || currentLedger.role === 'editor'),
+  )
+  const openBillUpload = useCallback(
+    (row: ReadAccount) => {
+      if (!activeLedgerId) {
+        toast.error(t('accounts.bill.ledgerRequired'), t('notice.error'))
+        return
+      }
+      setBillUploadAccount(row)
+    },
+    [activeLedgerId, t, toast],
   )
 
   const refresh = useCallback(async () => {
@@ -603,6 +621,7 @@ export function AccountsPage() {
         onClickAccount={(row) =>
           dispatchOpenDetailAccount(row as WorkspaceAccount, { defaultScope: 'all' })
         }
+        onUploadBill={canUploadBill ? openBillUpload : undefined}
         onDelete={(row) => {
           // 严格策略:有关联交易直接拒绝,不弹"是否强制删除"。先要求用户在
           // 详情页/交易页把这些交易改/删/迁走,账户回到 0 笔再来删。比 mobile
@@ -621,6 +640,15 @@ export function AccountsPage() {
           }
           setPendingDelete(ws)
         }}
+      />
+      <BillUploadDialog
+        open={billUploadAccount !== null}
+        onOpenChange={(open) => {
+          if (!open) setBillUploadAccount(null)
+        }}
+        account={billUploadAccount}
+        ledgerId={activeLedgerId}
+        token={token}
       />
       {/* AccountDetailDialog 已迁到 GlobalEntityDialogs */}
       {/* 删除确认 — 有 tx 时显示 warning 文案 + count(对齐 mobile);无 tx

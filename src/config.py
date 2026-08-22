@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     backup_max_upload_bytes: int = 64 * 1024 * 1024
     attachment_storage_dir: str = "./data/attachments"
     attachment_max_upload_bytes: int = 64 * 1024 * 1024
+    bill_inbox_dir: str = Field(default="./data/bill-inbox", alias="BILL_INBOX_DIR")
 
     # ===== rclone 备份模块 =====
     # rclone.conf 路径(权限 0600,只 server 进程读写)。默认 `./data/rclone.conf`
