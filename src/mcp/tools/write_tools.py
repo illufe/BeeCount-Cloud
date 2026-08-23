@@ -1,4 +1,4 @@
-"""MCP write tools — 7 个,LLM 用来修改用户数据。
+"""MCP write tools — 8 个,LLM 用来修改用户数据。
 
 **实现策略**:write tools 通过 **HTTP self-call** 调现有的 `/api/v1/write/*`
 router endpoint,而不是直接动 DB。原因:
@@ -349,6 +349,70 @@ async def update_transaction(
     return {
         "sync_id": sync_id,
         "updated": [k for k in patch.keys() if k != "base_change_id"],
+        "_meta": result,
+    }
+
+
+async def update_transactions(
+    user: User,
+    *,
+    updates: list[dict[str, Any]],
+    ledger_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """批量更新交易信息,每次最多 50 笔且必须显式账本/幂等键。
+
+    The router performs all precondition checks and category-id resolution in
+    one DB transaction.  This wrapper deliberately does not loop over the
+    single-transaction tool, preserving one self-call per bounded batch.
+    """
+    if not updates:
+        raise ValueError("updates must be a non-empty list")
+    if len(updates) > 50:
+        raise ValueError("updates must contain at most 50 items")
+    target_ledger_id = str(ledger_id or "").strip()
+    if not target_ledger_id:
+        raise ValueError("ledger_id is required")
+    key = str(idempotency_key or "").strip()
+    if not key:
+        raise ValueError("idempotency_key is required for safe batch retries")
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(updates):
+        if not isinstance(raw, dict):
+            raise ValueError(f"updates[{index}] must be an object")
+        sync_id = str(raw.get("sync_id") or "").strip()
+        if not sync_id:
+            raise ValueError(f"updates[{index}].sync_id is required")
+        expected = raw.get("expected_old_state", {})
+        target = raw.get("target_state", {})
+        if not isinstance(expected, dict) or not isinstance(target, dict) or not target:
+            raise ValueError(f"updates[{index}] must contain expected_old_state and target_state")
+        normalized.append({
+            "sync_id": sync_id,
+            "expected_old_state": dict(expected),
+            "target_state": dict(target),
+        })
+
+    with SessionLocal() as db:
+        led, ledger_status = _resolve_write_ledger(db, user, target_ledger_id)
+        if ledger_status is not None:
+            return ledger_status
+        assert led is not None
+        ledger_name = led.name
+
+    settings = get_settings()
+    path = f"{settings.api_prefix}/write/ledgers/{target_ledger_id}/transactions/batch/update"
+    result = await _self_call(
+        "POST",
+        path,
+        user,
+        headers={"Idempotency-Key": key},
+        json={"base_change_id": 0, "updates": normalized},
+    )
+    return {
+        "ledger": ledger_name,
+        "updated_count": len(result.get("updated_sync_ids", [])),
+        "already_applied_count": len(result.get("already_applied_sync_ids", [])),
         "_meta": result,
     }
 

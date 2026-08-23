@@ -192,15 +192,19 @@ def list_transactions(
         }
 
 
-def get_transaction(user: User, sync_id: str) -> dict[str, Any] | None:
-    """单条交易详情(按 sync_id,跨账本)。"""
+def get_transaction(user: User, sync_id: str, ledger_id: str | None = None) -> dict[str, Any] | None:
+    """单条交易详情,可用显式账本约束结果。"""
     with SessionLocal() as db:
-        row = db.scalar(
-            select(ReadTxProjection).where(
-                ReadTxProjection.user_id == user.id,
-                ReadTxProjection.sync_id == sync_id,
-            )
+        query = select(ReadTxProjection).where(
+            ReadTxProjection.user_id == user.id,
+            ReadTxProjection.sync_id == sync_id,
         )
+        if ledger_id:
+            ledger = _resolve_ledger(db, user.id, ledger_id)
+            if ledger is None:
+                return None
+            query = query.where(ReadTxProjection.ledger_id == ledger.id)
+        row = db.scalar(query)
         if row is None:
             return None
         led = db.scalar(select(Ledger).where(Ledger.id == row.ledger_id))
@@ -210,8 +214,10 @@ def get_transaction(user: User, sync_id: str) -> dict[str, Any] | None:
         return out
 
 
-def get_transactions(user: User, sync_ids: list[str]) -> dict[str, Any]:
-    """按 sync_ids 批量取交易(只返回命中的,user 级跨账本,口径与 get_transaction 一致)。"""
+def get_transactions(
+    user: User, sync_ids: list[str], ledger_id: str | None = None
+) -> dict[str, Any]:
+    """按 sync_ids 批量取交易,可用显式账本约束结果。"""
     if not isinstance(sync_ids, list) or not sync_ids:
         raise ValueError("sync_ids must be a non-empty list")
     if len(sync_ids) > 200:
@@ -220,10 +226,16 @@ def get_transactions(user: User, sync_ids: list[str]) -> dict[str, Any]:
     if any(not i for i in ids):
         raise ValueError("sync_ids contains an empty id")
     with SessionLocal() as db:
-        rows = db.scalars(select(ReadTxProjection).where(
+        query = select(ReadTxProjection).where(
             ReadTxProjection.user_id == user.id,
             ReadTxProjection.sync_id.in_(ids),
-        )).all()
+        )
+        if ledger_id:
+            ledger = _resolve_ledger(db, user.id, ledger_id)
+            if ledger is None:
+                return {"transactions": []}
+            query = query.where(ReadTxProjection.ledger_id == ledger.id)
+        rows = db.scalars(query).all()
         return {"transactions": [_serialize_tx(r, r.category_name) for r in rows]}
 
 

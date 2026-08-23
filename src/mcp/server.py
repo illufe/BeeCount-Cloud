@@ -245,20 +245,26 @@ async def list_transactions(
 
 
 @mcp.tool()
-async def get_transaction(ctx: Context, sync_id: str) -> dict[str, Any] | None:
-    """Get a single transaction by its sync_id (cross-ledger lookup)."""
+async def get_transaction(
+    ctx: Context, sync_id: str, ledger_id: str | None = None
+) -> dict[str, Any] | None:
+    """Get a transaction, optionally constrained to an explicit ledger."""
     return await _logged_call(
-        ctx, name="get_transaction", scope=SCOPE_MCP_READ, kwargs={"sync_id": sync_id},
-        body=lambda user: asyncio.to_thread(read_tools.get_transaction, user, sync_id),
+        ctx, name="get_transaction", scope=SCOPE_MCP_READ,
+        kwargs={"sync_id": sync_id, "ledger_id": ledger_id},
+        body=lambda user: asyncio.to_thread(read_tools.get_transaction, user, sync_id, ledger_id),
     )
 
 
 @mcp.tool()
-async def get_transactions(ctx: Context, sync_ids: list[str]) -> dict[str, Any]:
-    """Get multiple transactions by their sync_ids (cross-ledger, user-scoped)."""
+async def get_transactions(
+    ctx: Context, sync_ids: list[str], ledger_id: str | None = None
+) -> dict[str, Any]:
+    """Get transactions, optionally constrained to an explicit ledger."""
     return await _logged_call(
-        ctx, name="get_transactions", scope=SCOPE_MCP_READ, kwargs={"sync_ids": sync_ids},
-        body=lambda user: asyncio.to_thread(read_tools.get_transactions, user, sync_ids),
+        ctx, name="get_transactions", scope=SCOPE_MCP_READ,
+        kwargs={"sync_ids": sync_ids, "ledger_id": ledger_id},
+        body=lambda user: asyncio.to_thread(read_tools.get_transactions, user, sync_ids, ledger_id),
     )
 
 
@@ -349,7 +355,7 @@ async def search(ctx: Context, q: str, limit: int = 20) -> list[dict[str, Any]]:
 
 
 # ============================================================================
-# Write tools — 7 个,mcp:write scope
+# Write tools — 8 个,mcp:write scope
 # ============================================================================
 
 
@@ -445,6 +451,30 @@ async def update_transaction(
     return await _logged_call(
         ctx, name="update_transaction", scope=SCOPE_MCP_WRITE, kwargs=kw,
         body=lambda user: write_tools.update_transaction(user, **kw),
+    )
+
+
+@mcp.tool()
+async def update_transactions(
+    ctx: Context,
+    updates: list[dict[str, Any]],
+    ledger_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Update up to 50 transactions atomically with per-item preconditions.
+
+    Each item is ``{sync_id, expected_old_state, target_state}``.  The target
+    currently supports the safe information fields ``category`` and ``note``;
+    category IDs are resolved from existing categories by the server.
+    """
+    kw = dict(
+        updates=updates,
+        ledger_id=ledger_id,
+        idempotency_key=idempotency_key,
+    )
+    return await _logged_call(
+        ctx, name="update_transactions", scope=SCOPE_MCP_WRITE, kwargs=kw,
+        body=lambda user: write_tools.update_transactions(user, **kw),
     )
 
 
