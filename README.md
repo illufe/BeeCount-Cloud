@@ -193,9 +193,11 @@ Alembic 迁移会在容器启动时自动执行(详见[数据库迁移](#-数据
 
 ### 4) 备份
 
-`./data/` 目录包含所有持久化数据:SQLite 数据库、附件、备份归档、JWT 密钥。直接打包目录即可:
+`./data/` 目录包含所有持久化数据:SQLite 数据库、附件、备份归档、JWT 密钥。
+SQLite 使用 WAL；先停掉容器，再打包整个目录:
 
 ```bash
+docker compose stop beecount-cloud
 tar czf beecount-$(date +%F).tar.gz ./data
 ```
 

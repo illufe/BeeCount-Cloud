@@ -39,12 +39,16 @@ docker compose up -d --build
 SQLite:
 
 ```bash
-./scripts/backup_sqlite.sh /data/beecount.db ./backups/sqlite
+docker compose exec -T beecount-cloud \
+  /app/scripts/backup_sqlite.sh /data/beecount.db /data/backups/sqlite
 ```
 
-The script uses `sqlite3 .backup` (SQLite Online Backup API), which is **safe
-while the server is running** and works in any journal mode. Output is always
-a single clean db file — no `-wal` / `-shm` companions.
+The script uses Python's `sqlite3.Connection.backup()` (SQLite Online Backup
+API), which is **safe while the server is running** and works in any journal
+mode. It verifies both `PRAGMA integrity_check` and `PRAGMA quick_check` before
+publishing the timestamped output. A failed backup or verification leaves no
+usable output file. Output is always a single clean db file — no `-wal` /
+`-shm` companions. Python is already in the image; the `sqlite3` CLI is not.
 
 > ⚠️ Don't `cp` the raw db file: the server runs in WAL mode, and a bare `cp`
 > will miss uncommitted writes still sitting in `beecount.db-wal`. Always use
@@ -54,6 +58,15 @@ For a full volume snapshot (DB + attachments + JWT secret + previous backups
 all together), simply tar the `beecount_data` volume after stopping the
 container, OR use `VACUUM INTO` via the in-app backup runner (admin UI →
 "Backup") which integrates with rclone.
+The in-app runner intentionally clears selected operational tables in its
+database copy; use the stopped full-volume archive when those tables are part
+of the recovery evidence.
+
+Do not run a host-side `sqlite3` integrity check against a live macOS/Colima
+bind-mounted WAL database as a deployment hard gate. That host view is
+diagnostic only; use the in-container online-backup output above, or check a
+clean file after stopping the container. `/ready` is a connectivity check, not
+a SQLite integrity check.
 
 ### Restore
 

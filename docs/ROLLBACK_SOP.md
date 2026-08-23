@@ -16,12 +16,21 @@
    connection.
 5. Verify:
    - `GET /ready`
-   - Web ledger list and one write smoke test.
+   - Container health, version, logs, and read-only ledger/transaction
+     projection checks.
+   - Do not run a write smoke test by default. Any write verification needs a
+     separate explicit approval and an isolated test resource.
 
 > Why step 2? In WAL mode `/data` contains `beecount.db` + `beecount.db-wal`
 > + `beecount.db-shm`. If you only overwrite `beecount.db` and leave the old
 > -wal around, SQLite will try to "recover" the old WAL log into the new
 > database and corrupt your restore. Always delete them first.
+
+On macOS/Colima, an integrity check issued by the host against the active
+bind-mounted WAL database is diagnostic only, not a rollback gate. Check the
+clean backup before replacement, or run the in-container online-backup helper
+and validate its clean output. Never treat `/ready` alone as a SQLite
+integrity check.
 
 ## PostgreSQL
 
@@ -31,7 +40,9 @@
 3. Start app container.
 4. Verify:
    - `GET /ready`
-   - one read + one write API smoke test.
+   - health, version, logs, and a read-only data check.
+   - A write smoke test is not part of the default rollback gate; it requires
+     separate explicit approval and an isolated test resource.
 
 ## Post-check
 

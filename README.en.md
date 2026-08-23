@@ -194,9 +194,10 @@ Alembic migrations run automatically on container startup (see [Database Migrati
 
 ### 4) Backup
 
-The `./data/` directory contains all persistent data: SQLite database, attachments, backup archives, JWT secret. Just tar the directory:
+The `./data/` directory contains all persistent data: SQLite database, attachments, backup archives, JWT secret. SQLite uses WAL, so stop the container before tarring the whole directory:
 
 ```bash
+docker compose stop beecount-cloud
 tar czf beecount-$(date +%F).tar.gz ./data
 ```
 
