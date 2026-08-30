@@ -87,9 +87,11 @@ import {
   ConfirmDialog,
   TagPickerDialog,
   TransactionsPanel,
+  buildTxPayload,
   canManageLedger,
   canWriteTransactions,
   txDefaults,
+  validateTxForm,
   type TxForm
 } from '@beecount/web-features'
 
@@ -1385,31 +1387,18 @@ export function TransactionsPage() {
       setErrorNotice(t('transactions.error.ledgerRequired'))
       return false
     }
-    // 金额必须 > 0 —— mobile addTransaction 也校验,跨端一致防止 0 元交易
-    // 污染统计 / 余额。
-    const amountNum = Number((txForm.amount || '').toString().trim())
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      setErrorNotice(t('transactions.error.amountInvalid'))
+    const validationError = validateTxForm(txForm)
+    if (validationError) {
+      const messageByError = {
+        amountInvalid: 'transactions.error.amountInvalid',
+        categoryRequired: 'transactions.error.categoryRequired',
+        transferAccountsRequired: 'transactions.error.transferAccountsRequired',
+        transferAccountsDifferent: 'transactions.error.transferAccountsDifferent',
+      } as const
+      setErrorNotice(t(messageByError[validationError]))
       return false
     }
-    // 非转账交易必须选分类(transfer 自动归虚拟"转账"分类,server 处理)。
-    // mobile 端 transaction_editor_page 也强制必选,跨端一致避免 ungrouped tx
-    // 污染分类统计。
-    if (txForm.tx_type !== 'transfer' && !txForm.category_name.trim()) {
-      setErrorNotice(t('transactions.error.categoryRequired'))
-      return false
-    }
-    if (txForm.tx_type === 'transfer') {
-      // 转账必须两边都选且不同 —— 否则语义无法表达。
-      if (!txForm.from_account_name.trim() || !txForm.to_account_name.trim()) {
-        setErrorNotice(t('transactions.error.transferAccountsRequired'))
-        return false
-      }
-      if (txForm.from_account_name.trim() === txForm.to_account_name.trim()) {
-        setErrorNotice(t('transactions.error.transferAccountsDifferent'))
-        return false
-      }
-    }
+    const amountNum = Number(txForm.amount.trim())
     // 非转账交易允许不选账户（mobile 端 accountId 本来就是 nullable），之前 web
     // 强制校验导致 mobile 导入的无账户交易在 web 上无法编辑。
 
@@ -1430,15 +1419,6 @@ export function TransactionsPage() {
           .filter((row) => row.name.trim())
           .map((row) => [row.name.trim().toLowerCase(), row.id] as const)
       )
-
-      const accountName = txForm.account_name.trim()
-      const fromAccountName = txForm.from_account_name.trim()
-      const toAccountName = txForm.to_account_name.trim()
-      const categoryName = txForm.category_name.trim()
-      const categoryKind = txForm.category_kind
-      const txTagIds = txForm.tags
-        .map((value) => tagByName.get(value.trim().toLowerCase()))
-        .filter((value): value is string => Boolean(value))
 
       // v30 多币种:共享 helper(手动 override > 自动源;编辑模式币种未变
       // 返回 null 不发字段 —— 金额变化由 server L14 按隐含汇率联动,避免
@@ -1462,28 +1442,11 @@ export function TransactionsPage() {
         }
       }
 
-      const payload = {
-        tx_type: txForm.tx_type,
-        amount: Number(txForm.amount || 0),
-        happened_at: txForm.happened_at || new Date().toISOString(),
-        note: txForm.note || null,
-        category_name: isTransfer ? null : categoryName || null,
-        category_kind: isTransfer ? null : categoryKind || null,
-        category_id: isTransfer ? null : categoryByKey.get(`${categoryKind}:${categoryName.toLowerCase()}`) || null,
-        account_name: isTransfer ? null : accountName || null,
-        account_id: isTransfer ? null : accountByName.get(accountName.toLowerCase()) || null,
-        from_account_name: isTransfer ? fromAccountName || null : null,
-        from_account_id: isTransfer ? accountByName.get(fromAccountName.toLowerCase()) || null : null,
-        to_account_name: isTransfer ? toAccountName || null : null,
-        to_account_id: isTransfer ? accountByName.get(toAccountName.toLowerCase()) || null : null,
-        tags: txForm.tags.length > 0 ? txForm.tags : null,
-        tag_ids: txTagIds.length > 0 ? txTagIds : null,
-        attachments: txForm.attachments.length > 0 ? txForm.attachments : null,
-        // §三 标记按 type 条件落库:转账两者都 false;收入只允许 stats;支出两者都允许。
-        exclude_from_stats: isTransfer ? false : txForm.exclude_from_stats,
-        exclude_from_budget: txForm.tx_type === 'expense' ? txForm.exclude_from_budget : false,
-        ...currencyFields
-      }
+      const payload = buildTxPayload(txForm, {
+        accountByName,
+        categoryByKey,
+        tagByName,
+      }, currencyFields)
       // eslint-disable-next-line no-console
       console.info('[tx-save] request', {
         editingId: txForm.editingId,

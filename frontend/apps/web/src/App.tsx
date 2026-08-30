@@ -15,6 +15,9 @@ import { clearCursor } from './state/sync-client'
 const TransactionsPage = lazy(() =>
   import('./pages/sections/TransactionsPage').then((m) => ({ default: m.TransactionsPage })),
 )
+const QuickAddPage = lazy(() =>
+  import('./pages/sections/QuickAddPage').then((m) => ({ default: m.QuickAddPage })),
+)
 const AccountsPage = lazy(() =>
   import('./pages/sections/AccountsPage').then((m) => ({ default: m.AccountsPage })),
 )
@@ -193,6 +196,14 @@ function AppRoutes() {
           element={
             <Suspense fallback={<RouteFallback />}>
               <OverviewPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="quick-add"
+          element={
+            <Suspense fallback={<RouteFallback />}>
+              <QuickAddPage />
             </Suspense>
           }
         />

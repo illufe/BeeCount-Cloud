@@ -24,6 +24,11 @@ expect(parseRoute('/app/workspace/transactions')).toEqual({
       ledgerId: '',
       section: 'transactions'
     })
+    expect(parseRoute('/app/quick-add')).toEqual({
+      kind: 'app',
+      ledgerId: '',
+      section: 'quick-add'
+    })
     expect(parseRoute('/app/settings/health')).toEqual({
       kind: 'app',
       ledgerId: '',
@@ -40,6 +45,9 @@ expect(parseRoute('/app/workspace/transactions')).toEqual({
   })
 
   it('creates path from app route', () => {
+    expect(
+      routePath({ kind: 'app', ledgerId: '', section: 'quick-add' })
+    ).toBe('/app/quick-add')
     expect(
       routePath({
         kind: 'app',

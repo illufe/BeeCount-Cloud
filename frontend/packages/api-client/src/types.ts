@@ -295,6 +295,13 @@ export type WorkspaceTransactionPage = {
   total: number
   limit: number
   offset: number
+  summary: WorkspaceTransactionSummary
+}
+
+export type WorkspaceTransactionSummary = {
+  income_total: number
+  expense_total: number
+  balance: number
 }
 
 export type WorkspaceAccount = ReadAccount & {

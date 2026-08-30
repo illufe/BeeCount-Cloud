@@ -634,11 +634,18 @@ class WorkspaceTransactionOut(ReadTransactionOut):
     pass
 
 
+class WorkspaceTransactionSummaryOut(BaseModel):
+    income_total: float = 0.0
+    expense_total: float = 0.0
+    balance: float = 0.0
+
+
 class WorkspaceTransactionPageOut(BaseModel):
     items: list[WorkspaceTransactionOut] = Field(default_factory=list)
     total: int
     limit: int
     offset: int
+    summary: WorkspaceTransactionSummaryOut = Field(default_factory=WorkspaceTransactionSummaryOut)
 
 
 class WorkspaceAccountOut(ReadAccountOut):

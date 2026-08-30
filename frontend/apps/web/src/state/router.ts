@@ -11,6 +11,7 @@ export type AppRoute =
     }
 
 export const APP_SECTIONS: AppSection[] = [
+  'quick-add',
   'transactions',
   'calendar',
   'accounts',
@@ -35,6 +36,8 @@ export const DEFAULT_APP_SECTION: AppSection = 'transactions'
 function parseWorkspaceSection(parts: string[]): AppSection {
   if (parts.length === 0) return DEFAULT_APP_SECTION
   switch (parts.join('/')) {
+    case 'quick-add':
+      return 'quick-add'
     case 'transactions':
       return 'transactions'
     case 'accounts':
@@ -73,6 +76,8 @@ function parseRootSection(parts: string[]): AppSection {
   if (parts.length === 0) return DEFAULT_APP_SECTION
   const raw = parts.join('/')
   switch (raw) {
+    case 'quick-add':
+      return 'quick-add'
     case 'transactions':
       return 'transactions'
     case 'calendar':
@@ -172,6 +177,7 @@ export function parseRoute(pathname: string): AppRoute {
   }
   if (
     parts[1] === 'transactions' ||
+    parts[1] === 'quick-add' ||
     parts[1] === 'calendar' ||
     parts[1] === 'accounts' ||
     parts[1] === 'categories' ||
@@ -198,6 +204,8 @@ export function routePath(route: AppRoute): string {
     return '/login'
   }
   switch (route.section) {
+    case 'quick-add':
+      return '/app/quick-add'
     case 'transactions':
       return '/app/transactions'
     case 'calendar':
