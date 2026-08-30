@@ -31,6 +31,19 @@ export function isCustomDateFilter(
   return !range || applied.dateFrom !== range.dateFrom || applied.dateTo !== range.dateTo
 }
 
+/** Compact account selection follows the account currency; preserve edit baseline for an explicit change. */
+export function quickAddFormAfterAccountSelection(form: TxForm, accountName: string): TxForm {
+  if (form.tx_type === 'transfer' || form.account_name.trim() === accountName.trim()) {
+    return { ...form, account_name: accountName }
+  }
+  return {
+    ...form,
+    account_name: accountName,
+    currency: '',
+    original_currency: form.editingId ? form.original_currency : '',
+  }
+}
+
 export function quickAddFormAfterSave(form: TxForm): TxForm {
   const next = {
     ...form,

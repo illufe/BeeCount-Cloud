@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { isCustomDateFilter, naturalMonthDateRange, quickAddFormAfterSave, txDefaults } from '@beecount/web-features'
+import {
+  isCustomDateFilter,
+  naturalMonthDateRange,
+  quickAddFormAfterAccountSelection,
+  quickAddFormAfterSave,
+  transactionTableAmount,
+  txDefaults,
+} from '@beecount/web-features'
 
 describe('quick add helpers', () => {
   it('creates an inclusive natural month range including leap day', () => {
@@ -21,6 +28,41 @@ describe('quick add helpers', () => {
     expect(isCustomDateFilter({ dateFrom: '2024-02-01', dateTo: '' }, '2024-02')).toBe(true)
     expect(isCustomDateFilter({ dateFrom: '2024-02-01', dateTo: '2024-02-29' }, '')).toBe(true)
     expect(isCustomDateFilter({ dateFrom: '', dateTo: '' }, '')).toBe(false)
+  })
+
+  it('follows a changed compact account while preserving edit currency baseline', () => {
+    const form = {
+      ...txDefaults(),
+      editingId: 'tx-1',
+      account_name: 'USD account',
+      currency: 'USD',
+      original_currency: 'USD',
+    }
+    const next = quickAddFormAfterAccountSelection(form, 'CNY account')
+    expect(next.account_name).toBe('CNY account')
+    expect(next.currency).toBe('')
+    expect(next.original_currency).toBe('USD')
+  })
+
+  it('clears copied currency metadata on a changed account and leaves transfers alone', () => {
+    const copied = quickAddFormAfterAccountSelection({
+      ...txDefaults(),
+      account_name: 'USD account',
+      currency: 'USD',
+      original_currency: 'USD',
+    }, 'CNY account')
+    expect(copied.currency).toBe('')
+    expect(copied.original_currency).toBe('')
+
+    const transfer = quickAddFormAfterAccountSelection({
+      ...txDefaults(),
+      tx_type: 'transfer',
+      account_name: 'USD account',
+      currency: 'USD',
+      original_currency: 'USD',
+    }, 'CNY account')
+    expect(transfer.currency).toBe('USD')
+    expect(transfer.original_currency).toBe('USD')
   })
 
   it('keeps normal entry selections and clears transient fields after save', () => {
@@ -69,5 +111,11 @@ describe('quick add helpers', () => {
     expect(next.to_account_name).toBe('银行卡')
     expect(next.category_name).toBe('')
     expect(next.currency).toBe('')
+  })
+
+  it('uses included native amounts for transaction table totals', () => {
+    expect(transactionTableAmount({ amount: 100, native_amount: 86.4, exclude_from_stats: false })).toBe(86.4)
+    expect(transactionTableAmount({ amount: 100, native_amount: 86.4, exclude_from_stats: true })).toBe(0)
+    expect(transactionTableAmount({ amount: 100, native_amount: null, exclude_from_stats: false })).toBe(100)
   })
 })

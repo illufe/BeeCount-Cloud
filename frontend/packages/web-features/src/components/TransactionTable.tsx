@@ -49,6 +49,10 @@ type DayGroup = {
   expense: number
 }
 
+export function transactionTableAmount(row: Pick<ReadTransaction, 'amount' | 'native_amount' | 'exclude_from_stats'>): number {
+  return row.exclude_from_stats ? 0 : row.native_amount ?? row.amount
+}
+
 /**
  * 随手记「流水」式交易表 —— 列式(非卡片)、按本地日期分组、一行一笔。
  *
@@ -115,8 +119,9 @@ export function TransactionTable({
         map.set(key, group)
       }
       group.rows.push(row)
-      if (row.tx_type === 'income') group.income += row.amount
-      else if (row.tx_type === 'expense') group.expense += row.amount
+      const amount = transactionTableAmount(row)
+      if (row.tx_type === 'income') group.income += amount
+      else if (row.tx_type === 'expense') group.expense += amount
     }
     for (const group of map.values()) {
       group.rows.sort(

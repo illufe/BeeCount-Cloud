@@ -21,6 +21,7 @@ import type { TxForm } from '../forms'
 import { groupAccountPickerOptions } from '../lib/accountGroups'
 import { openNativePicker } from '../lib/datePicker'
 import { tagTextColorOn } from '../lib/tagColorPalette'
+import { quickAddFormAfterAccountSelection } from '../lib/quickAdd'
 
 export type TransactionFormProps = {
   form: TxForm
@@ -270,7 +271,7 @@ export function TransactionForm({
               disabled={dictionariesLoading}
               allowNone
               placeholder={t('transactions.placeholder.noAccount')}
-              onSelect={(value) => onFormChange({ ...form, account_name: value })}
+              onSelect={(value) => onFormChange(quickAddFormAfterAccountSelection(form, value))}
             />
           )}
 

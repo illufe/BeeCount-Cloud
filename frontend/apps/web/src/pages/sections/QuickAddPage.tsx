@@ -264,7 +264,6 @@ export function QuickAddPage() {
   }, [activeLedgerId, displayYear, t, toast, token])
 
   useEffect(() => {
-    setWriteLedgerId(activeWritableLedger?.ledger_id || '')
     setForm(txDefaults())
     setAccounts([])
     setCategories([])
@@ -289,7 +288,11 @@ export function QuickAddPage() {
       setTags(tagRows)
     })
     return () => { cancelled = true }
-  }, [activeLedgerId, activeWritableLedger?.ledger_id, token])
+  }, [activeLedgerId, token])
+
+  useEffect(() => {
+    setWriteLedgerId(activeWritableLedger?.ledger_id || '')
+  }, [activeWritableLedger?.ledger_id])
 
   useEffect(() => { void loadTransactions() }, [loadTransactions])
   useEffect(() => { void loadYear() }, [loadYear])
