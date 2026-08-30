@@ -67,6 +67,7 @@ from ...schemas import (
     WorkspaceTagOut,
     WorkspaceTransactionOut,
     WorkspaceTransactionPageOut,
+    WorkspaceTransactionSummaryOut,
 )
 from ...security import SCOPE_APP_WRITE, SCOPE_WEB_READ
 from ... import snapshot_cache
@@ -685,6 +686,7 @@ __all__ = [
     'WorkspaceTagOut',
     'WorkspaceTransactionOut',
     'WorkspaceTransactionPageOut',
+    'WorkspaceTransactionSummaryOut',
     'SCOPE_APP_WRITE',
     'SCOPE_WEB_READ',
     'snapshot_cache',

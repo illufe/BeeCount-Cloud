@@ -17,10 +17,12 @@ import { useT, useToast } from '@beecount/ui'
 import {
   resolveCurrencyFields,
   loadRatesToBase,
+  buildTxPayload,
   CategoriesPanel,
   categoryDefaults,
   TransactionsPanel,
   txDefaults,
+  validateTxForm,
   type CategoryForm,
   type TxForm,
 } from '@beecount/web-features'
@@ -207,31 +209,18 @@ export function GlobalEditDialogs() {
       notifyError(new Error(t('transactions.error.ledgerRequired')))
       return false
     }
-    const amountNum = Number((editTxForm.amount || '').toString().trim())
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      notifyError(new Error(t('transactions.error.amountInvalid')))
+    const validationError = validateTxForm(editTxForm)
+    if (validationError) {
+      const messageByError = {
+        amountInvalid: 'transactions.error.amountInvalid',
+        categoryRequired: 'transactions.error.categoryRequired',
+        transferAccountsRequired: 'transactions.error.transferAccountsRequired',
+        transferAccountsDifferent: 'transactions.error.transferAccountsDifferent',
+      } as const
+      notifyError(new Error(t(messageByError[validationError])))
       return false
     }
-    if (editTxForm.tx_type !== 'transfer' && !editTxForm.category_name.trim()) {
-      notifyError(new Error(t('transactions.error.categoryRequired')))
-      return false
-    }
-    if (editTxForm.tx_type === 'transfer') {
-      if (
-        !editTxForm.from_account_name.trim() ||
-        !editTxForm.to_account_name.trim()
-      ) {
-        notifyError(new Error(t('transactions.error.transferAccountsRequired')))
-        return false
-      }
-      if (
-        editTxForm.from_account_name.trim() ===
-        editTxForm.to_account_name.trim()
-      ) {
-        notifyError(new Error(t('transactions.error.transferAccountsDifferent')))
-        return false
-      }
-    }
+    const amountNum = Number(editTxForm.amount.trim())
 
     // v30 多币种:共享 helper(override 口径/编辑防漂移/改回本位币),与
     // TransactionsPage 提交完全同一实现。
@@ -267,50 +256,34 @@ export function GlobalEditDialogs() {
       }
     }
 
-    const payload = {
-      tx_type: editTxForm.tx_type,
-      amount: amountNum,
-      happened_at: editTxForm.happened_at,
-      note: editTxForm.note.trim() || null,
-      category_name:
-        editTxForm.tx_type === 'transfer'
-          ? null
-          : editTxForm.category_name.trim() || null,
-      category_kind:
-        editTxForm.tx_type === 'transfer' ? null : editTxForm.tx_type,
-      account_name:
-        editTxForm.tx_type === 'transfer'
-          ? null
-          : editTxForm.account_name.trim() || null,
-      from_account_name:
-        editTxForm.tx_type === 'transfer'
-          ? editTxForm.from_account_name.trim()
-          : null,
-      to_account_name:
-        editTxForm.tx_type === 'transfer'
-          ? editTxForm.to_account_name.trim()
-          : null,
-      tags: editTxForm.tags.filter((s) => s.length > 0),
-      attachments: editTxForm.attachments,
-      // §三 标记按 type 条件落库:转账两者都置 false;收入只允许 stats;支出两者都允许。
-      exclude_from_stats:
-        editTxForm.tx_type === 'transfer' ? false : editTxForm.exclude_from_stats,
-      exclude_from_budget:
-        editTxForm.tx_type === 'expense' ? editTxForm.exclude_from_budget : false,
-      ...currencyFields
-    }
+    const accountByName = new Map(
+      editTxAccounts
+        .filter((row) => row.name.trim())
+        .map((row) => [row.name.trim().toLowerCase(), row.id] as const),
+    )
+    const categoryByKey = new Map(
+      editTxCategories
+        .filter((row) => row.name.trim())
+        .map((row) => [`${row.kind}:${row.name.trim().toLowerCase()}`, row.id] as const),
+    )
+    const tagByName = new Map(
+      editTxTags
+        .filter((row) => row.name.trim())
+        .map((row) => [row.name.trim().toLowerCase(), row.id] as const),
+    )
+    const payload = buildTxPayload(editTxForm, { accountByName, categoryByKey, tagByName }, currencyFields)
 
     try {
       if (editTxForm.editingId) {
         await retryOnConflict(ledgerId, (base) =>
           updateTransaction(token, ledgerId, editTxForm.editingId!, base, payload),
         )
-        notifySuccess(t('notice.transactionUpdated'))
+        notifySuccess(t('notice.txUpdated'))
       } else {
         await retryOnConflict(ledgerId, (base) =>
           createTransaction(token, ledgerId, base, payload),
         )
-        notifySuccess(t('notice.transactionCreated'))
+        notifySuccess(t('notice.txCreated'))
       }
       return true
     } catch (err) {
@@ -329,6 +302,10 @@ export function GlobalEditDialogs() {
     t,
     notifyError,
     notifySuccess,
+    ledgers,
+    editTxAccounts,
+    editTxCategories,
+    editTxTags,
   ])
 
   void currency

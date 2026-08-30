@@ -35,6 +35,8 @@ type CategoryPickerDialogProps = {
   emptyText?: string
   /** 网格列数,默认 4。 */
   columns?: number
+  /** 布局变体,透传给 CategorySelector(默认 grid;交易记账场景传 pane)。 */
+  variant?: 'grid' | 'pane'
 }
 
 /**
@@ -60,6 +62,7 @@ export function CategoryPickerDialog({
   clearLabel,
   emptyText,
   columns = 4,
+  variant = 'grid',
 }: CategoryPickerDialogProps) {
   const t = useT()
   return (
@@ -80,6 +83,7 @@ export function CategoryPickerDialog({
             selectedId={selectedId}
             iconPreviewUrlByFileId={iconPreviewUrlByFileId}
             columns={columns}
+            variant={variant}
             emptyText={emptyText}
             onSelect={(cat) => {
               onSelect(cat)

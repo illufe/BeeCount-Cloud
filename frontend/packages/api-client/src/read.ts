@@ -18,8 +18,29 @@ import type {
   WorkspaceLedgerCounts,
   WorkspaceTag,
   WorkspaceTransaction,
-  WorkspaceTransactionPage
+  WorkspaceTransactionPage,
+  WorkspaceTransactionSummary
 } from './types'
+
+/**
+ * 多值筛选参数归一化:单值字符串视为 1 元素数组;数组原样返回;undefined/null/空
+ * 项过滤掉。后端 `list_workspace_transactions` 对这些参数都是可重复的 list 语义。
+ */
+function normalizeQueryArray(value: string | string[] | undefined): string[] {
+  if (!value) return []
+  return (Array.isArray(value) ? value : [value]).filter((item) => Boolean(item))
+}
+
+function summarizeWorkspaceTransactions(items: WorkspaceTransaction[]): WorkspaceTransactionSummary {
+  return items.reduce<WorkspaceTransactionSummary>((summary, item) => {
+    if (item.exclude_from_stats) return summary
+    const amount = item.native_amount ?? item.amount
+    if (item.tx_type === 'income') summary.income_total += amount
+    if (item.tx_type === 'expense') summary.expense_total += amount
+    summary.balance = summary.income_total - summary.expense_total
+    return summary
+  }, { income_total: 0, expense_total: 0, balance: 0 })
+}
 
 export async function fetchReadLedgers(token: string): Promise<ReadLedger[]> {
   return authedGet<ReadLedger[]>('/read/ledgers', token)
@@ -130,11 +151,12 @@ export async function fetchWorkspaceTransactions(
     userId?: string
     q?: string
     txType?: string
-    accountName?: string
+    accountName?: string | string[]
     txSyncId?: string
     tagSyncId?: string
-    categorySyncId?: string
-    accountSyncId?: string
+    categorySyncId?: string | string[]
+    /** 按 account syncId 精确过滤；数组会编码为可重复的 query 参数。 */
+    accountSyncId?: string | string[]
     /** 金额下限(含),按 abs 比较 */
     amountMin?: number
     /** 金额上限(含) */
@@ -152,11 +174,11 @@ export async function fetchWorkspaceTransactions(
   if (options?.userId) query.set('user_id', options.userId)
   if (options?.q) query.set('q', options.q)
   if (options?.txType) query.set('tx_type', options.txType)
-  if (options?.accountName) query.set('account_name', options.accountName)
+  for (const name of normalizeQueryArray(options?.accountName)) query.append('account_name', name)
   if (options?.txSyncId) query.set('tx_sync_id', options.txSyncId)
   if (options?.tagSyncId) query.set('tag_sync_id', options.tagSyncId)
-  if (options?.categorySyncId) query.set('category_sync_id', options.categorySyncId)
-  if (options?.accountSyncId) query.set('account_sync_id', options.accountSyncId)
+  for (const id of normalizeQueryArray(options?.categorySyncId)) query.append('category_sync_id', id)
+  for (const id of normalizeQueryArray(options?.accountSyncId)) query.append('account_sync_id', id)
   if (typeof options?.amountMin === 'number') query.set('amount_min', `${options.amountMin}`)
   if (typeof options?.amountMax === 'number') query.set('amount_max', `${options.amountMax}`)
   if (options?.dateFrom) query.set('date_from', options.dateFrom)
@@ -179,7 +201,8 @@ export async function fetchWorkspaceTransactions(
       items: normalizedItems,
       total: normalizedItems.length,
       limit: options?.limit ?? normalizedItems.length,
-      offset: options?.offset ?? 0
+      offset: options?.offset ?? 0,
+      summary: summarizeWorkspaceTransactions(normalizedItems)
     }
   }
 
@@ -188,7 +211,8 @@ export async function fetchWorkspaceTransactions(
     items: (response.items || []).map((item) => ({
       ...item,
       created_by_avatar_url: resolveApiUrl(item.created_by_avatar_url)
-    }))
+    })),
+    summary: response.summary ?? summarizeWorkspaceTransactions(response.items || [])
   }
 }
 

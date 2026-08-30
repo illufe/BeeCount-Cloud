@@ -9,7 +9,7 @@ from __future__ import annotations
 import statistics as _stats
 
 from pydantic import BaseModel
-from sqlalchemy import false as sa_false, tuple_
+from sqlalchemy import case, false as sa_false, tuple_
 
 from ._shared import *  # noqa: F401,F403 — imports + helpers + router
 from ...models import ExchangeRateCache, UserExchangeRateProjection
@@ -18,6 +18,55 @@ from ...models import ExchangeRateCache, UserExchangeRateProjection
 def _category_name_key(value: object) -> str:
     """分类名 fallback 的稳定比较键,与写路径的 trim/lower 规则对齐。"""
     return str(value or "").strip().lower()
+
+
+def _category_filter_branch(
+    scope_rows: list[tuple],
+    key_to_sid: dict[tuple[str, str], str | None],
+    sid: str,
+) -> tuple[list[str], set[tuple[str, str]]]:
+    """把单个 category syncId 解析成可精确过滤的 id 集合 + legacy 名称键集合。
+
+    语义(与单选分支完全一致,这里只改成"一次解析一个 id"):
+    - 稳定 id 精确命中;
+    - 若选中一级分类且 key 全局唯一,则一并纳入其所有二级子分类的 id,并把
+      对应 legacy 名称键并入(旧客户端交易只有名称、id 为 NULL 的行);
+    - 若选中的是一级分类自身的名称键唯一,则纳入该名称键。
+    返回 (exact_ids, legacy_keys)。多选时逐项调用并合并即可(维度内 OR)。
+    """
+    exact_ids: list[str] = [sid]
+    legacy_keys: set[tuple[str, str]] = set()
+    selected_rows = [row for row in scope_rows if row[0] == sid]
+    if len(selected_rows) != 1:
+        return exact_ids, legacy_keys
+    selected = selected_rows[0]
+    selected_kind_key = _category_name_key(selected[1] or "expense")
+    selected_name_key = _category_name_key(selected[2])
+    selected_key = (selected_kind_key, selected_name_key)
+    selected_key_is_unique = (
+        bool(selected_kind_key and selected_name_key)
+        and key_to_sid.get(selected_key) == sid
+    )
+    selected_level = int(selected[3] or 1)
+    if selected_level == 1 and selected_key_is_unique:
+        legacy_keys.add(selected_key)
+        for row in scope_rows:
+            child_kind_key = _category_name_key(row[1] or "expense")
+            child_name_key = _category_name_key(row[2])
+            child_parent_key = _category_name_key(row[4])
+            child_key = (child_kind_key, child_name_key)
+            if (
+                int(row[3] or 1) == 2
+                and child_kind_key == selected_kind_key
+                and child_parent_key == selected_name_key
+                and row[0]
+            ):
+                exact_ids.append(row[0])
+                if key_to_sid.get(child_key) == row[0]:
+                    legacy_keys.add(child_key)
+    elif selected_key_is_unique:
+        legacy_keys.add(selected_key)
+    return exact_ids, legacy_keys
 
 
 # ---------------------------------------------------------------------------
@@ -40,12 +89,12 @@ def list_workspace_transactions(
     ledger_id: str | None = Query(default=None),
     user_id: str | None = Query(default=None),
     tx_type: str | None = Query(default=None),
-    account_name: str | None = Query(default=None),
+    account_name: list[str] | None = Query(default=None, description="按账户名过滤(可重复,多值任一命中)"),
     q: str | None = Query(default=None),
     tx_sync_id: str | None = Query(default=None, description="按 tx 自身 syncId 精确过滤(用于 admin/integrity 跳到具体交易)"),
     tag_sync_id: str | None = Query(default=None, description="按 tag syncId 精确过滤,不走模糊搜索"),
-    category_sync_id: str | None = Query(default=None, description="按 category syncId 精确过滤"),
-    account_sync_id: str | None = Query(default=None, description="按 account syncId 精确过滤(含 from/to)"),
+    category_sync_id: list[str] | None = Query(default=None, description="按 category syncId 精确过滤(可重复,多值任一命中)"),
+    account_sync_id: list[str] | None = Query(default=None, description="按 account syncId 精确过滤(含 from/to,可重复,多值任一命中)"),
     amount_min: float | None = Query(default=None, description="金额下限(含)。按 abs(amount) 比较以兼容 expense 负值"),
     amount_max: float | None = Query(default=None, description="金额上限(含)"),
     date_from: datetime | None = Query(default=None, description="happened_at >= date_from"),
@@ -82,12 +131,15 @@ def list_workspace_transactions(
     if tx_type:
         query = query.where(ReadTxProjection.tx_type == tx_type)
     if account_name:
-        pattern = f"%{account_name}%"
-        query = query.where(or_(
-            ReadTxProjection.account_name.ilike(pattern),
-            ReadTxProjection.from_account_name.ilike(pattern),
-            ReadTxProjection.to_account_name.ilike(pattern),
-        ))
+        account_ors: list = []
+        for name in account_name:
+            pattern = f"%{name}%"
+            account_ors.append(or_(
+                ReadTxProjection.account_name.ilike(pattern),
+                ReadTxProjection.from_account_name.ilike(pattern),
+                ReadTxProjection.to_account_name.ilike(pattern),
+            ))
+        query = query.where(or_(*account_ors))
     # tx 自身 sync_id 过滤(单条精确查找)
     if tx_sync_id:
         query = query.where(ReadTxProjection.sync_id == tx_sync_id)
@@ -128,39 +180,16 @@ def list_workspace_transactions(
             else:
                 category_key_to_sync_id[category_key] = row[0]
 
-        selected_category_rows = [
-            row for row in category_scope_rows if row[0] == category_sync_id
-        ]
-        exact_category_ids = [category_sync_id]
+        # 多选:逐 id 解析出 exact id 集合 + legacy 名称键集合,维度内 OR(任一命中)。
+        exact_category_ids: list[str] = []
         legacy_category_keys: set[tuple[str, str]] = set()
-        if len(selected_category_rows) == 1:
-            selected_category = selected_category_rows[0]
-            selected_kind_key = _category_name_key(selected_category[1] or "expense")
-            selected_name_key = _category_name_key(selected_category[2])
-            selected_key = (selected_kind_key, selected_name_key)
-            selected_key_is_unique = (
-                bool(selected_kind_key and selected_name_key)
-                and category_key_to_sync_id.get(selected_key) == category_sync_id
+        for sid in category_sync_id:
+            ids, keys = _category_filter_branch(
+                category_scope_rows, category_key_to_sync_id, sid,
             )
-            selected_level = int(selected_category[3] or 1)
-            if selected_level == 1 and selected_key_is_unique:
-                legacy_category_keys.add(selected_key)
-                for row in category_scope_rows:
-                    child_kind_key = _category_name_key(row[1] or "expense")
-                    child_name_key = _category_name_key(row[2])
-                    child_parent_key = _category_name_key(row[4])
-                    child_key = (child_kind_key, child_name_key)
-                    if (
-                        int(row[3] or 1) == 2
-                        and child_kind_key == selected_kind_key
-                        and child_parent_key == selected_name_key
-                        and row[0]
-                    ):
-                        exact_category_ids.append(row[0])
-                        if category_key_to_sync_id.get(child_key) == row[0]:
-                            legacy_category_keys.add(child_key)
-            elif selected_key_is_unique:
-                legacy_category_keys.add(selected_key)
+            exact_category_ids.extend(ids)
+            legacy_category_keys.update(keys)
+        exact_category_ids = list(dict.fromkeys(exact_category_ids))
 
         exact_category = ReadTxProjection.category_sync_id.in_(exact_category_ids)
         if legacy_category_keys:
@@ -178,11 +207,13 @@ def list_workspace_transactions(
         else:
             query = query.where(exact_category)
     if account_sync_id:
-        query = query.where(or_(
-            ReadTxProjection.account_sync_id == account_sync_id,
-            ReadTxProjection.from_account_sync_id == account_sync_id,
-            ReadTxProjection.to_account_sync_id == account_sync_id,
-        ))
+        account_sync_ids = [value.strip() for value in account_sync_id if value.strip()]
+        if account_sync_ids:
+            query = query.where(or_(
+                ReadTxProjection.account_sync_id.in_(account_sync_ids),
+                ReadTxProjection.from_account_sync_id.in_(account_sync_ids),
+                ReadTxProjection.to_account_sync_id.in_(account_sync_ids),
+            ))
     if q:
         pattern = f"%{q}%"
         query = query.where(or_(
@@ -210,6 +241,23 @@ def list_workspace_transactions(
     total = int(db.scalar(
         select(func.count()).select_from(query.subquery())
     ) or 0)
+
+    # 汇总必须使用完整过滤集,不能从当前分页 rows 计算。沿用 analytics 口径:
+    # exclude_from_stats 不参与收入/支出,transfer 只保留在列表不进入两类金额。
+    summary_query = query.where(ReadTxProjection.exclude_from_stats == sa_false()).subquery()
+    native_or_amount = func.coalesce(summary_query.c.native_amount, summary_query.c.amount)
+    income_total, expense_total = db.execute(
+        select(
+            func.coalesce(
+                func.sum(case((summary_query.c.tx_type == 'income', native_or_amount), else_=0.0)),
+                0.0,
+            ),
+            func.coalesce(
+                func.sum(case((summary_query.c.tx_type == 'expense', native_or_amount), else_=0.0)),
+                0.0,
+            ),
+        )
+    ).one()
 
     query = query.order_by(
         ReadTxProjection.happened_at.desc(),
@@ -318,6 +366,11 @@ def list_workspace_transactions(
         total=total,
         limit=limit,
         offset=offset,
+        summary=WorkspaceTransactionSummaryOut(
+            income_total=float(income_total or 0.0),
+            expense_total=float(expense_total or 0.0),
+            balance=float(income_total or 0.0) - float(expense_total or 0.0),
+        ),
     )
 
 

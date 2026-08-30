@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { WorkspaceCategory } from '@beecount/api-client'
+import { useT } from '@beecount/ui'
 
 import { CategoryIcon } from './CategoryIcon'
 
 type CategorySelectorKind = 'expense' | 'income'
 
 type CategorySelectorProps = {
-  /** 分类类型,只有 expense / income 让选(transfer 是虚拟分类不参与选择)。 */
-  kind: CategorySelectorKind
+  /** 分类类型,只有 expense / income 让选(transfer 是虚拟分类不参与选择)。
+   *  `all` 用于筛选栏等"不限类型"场景:同时展示收入 + 支出两套分类。 */
+  kind: CategorySelectorKind | 'all'
   /** 全量分类列表(workspace dedup 后),通常从 fetchWorkspaceCategories 拿。
    *  组件内部按 kind 过滤 + 按 parent_name 分组,父级展示在网格,点开后子级
    *  在父行下方原地展开。 */
@@ -25,6 +27,13 @@ type CategorySelectorProps = {
   /** 网格列数,默认 4。windows 大点的可传 6/8 摆得密一些。 */
   columns?: number
   className?: string
+  /**
+   * 布局变体:
+   *  - `grid`(默认):父级按网格平铺,点击父级原地展开子级 —— 对齐 mobile。
+   *  - `pane`:左右两栏目录(左=一级分类,右=选中一级分类的子级),像随手记
+   *    的二级目录。左侧悬停即切换右侧,子级一键选取,减少点击数。
+   */
+  variant?: 'grid' | 'pane'
 }
 
 /**
@@ -52,7 +61,9 @@ export function CategorySelector({
   emptyText,
   columns = 4,
   className,
+  variant = 'grid',
 }: CategorySelectorProps) {
+  const t = useT()
   // 内部展开状态 —— 只有点击的父级允许同时展开 1 个,跟 mobile 一致。
   const [expandedParentId, setExpandedParentId] = useState<string | null>(null)
 
@@ -64,7 +75,10 @@ export function CategorySelector({
   // 同 sort 再按 name。跟 app `getTopLevelCategories` / `getSubCategories` 行为
   // 对齐。
   const { topLevels, childrenByParentName } = useMemo(() => {
-    const inKind = rows.filter((row) => row.kind === kind)
+    // kind='all'(筛选栏"不限类型")只展示真实收入/支出分类,排除虚拟的 transfer。
+    const inKind = kind === 'all'
+      ? rows.filter((row) => row.kind === 'expense' || row.kind === 'income')
+      : rows.filter((row) => row.kind === kind)
     const tops: WorkspaceCategory[] = []
     const children: Record<string, WorkspaceCategory[]> = {}
     for (const row of inKind) {
@@ -100,17 +114,118 @@ export function CategorySelector({
     // 找到父级的 syncId(rows 里 name+kind 唯一的 level=1)
     const parentRow = rows.find(
       (r) =>
-        r.kind === kind &&
+        (kind === 'all' || r.kind === kind) &&
         Number(r.level) === 1 &&
         (r.name || '').trim().toLowerCase() === parent.toLowerCase()
     )
     if (parentRow?.id) setExpandedParentId(parentRow.id)
   }, [selectedRow, selectedId, rows, kind])
 
+  // 左右两栏模式:当前突出的一级分类,决定右侧显示哪些子级。
+  const [activeParentId, setActiveParentId] = useState<string | null>(() => {
+    const parent = (selectedRow?.parent_name || '').trim()
+    if (parent) {
+      const p = topLevels.find((t) => (t.name || '').trim().toLowerCase() === parent.toLowerCase())
+      return p?.id ?? (topLevels[0]?.id ?? null)
+    }
+    return topLevels[0]?.id ?? null
+  })
+  const activeParent =
+    activeParentId ? topLevels.find((t) => t.id === activeParentId) || null : null
+  const activeChildren = activeParent
+    ? (childrenByParentName[(activeParent.name || '').trim().toLowerCase()] || [])
+    : []
+
+  // 选中态变化时,把右栏切到所选分类的父级(保证当前选中可见)。
+  useEffect(() => {
+    if (!selectedRow) return
+    const parent = (selectedRow.parent_name || '').trim()
+    const p = parent
+      ? topLevels.find((t) => (t.name || '').trim().toLowerCase() === parent.toLowerCase())
+      : topLevels[0]
+    if (p?.id) setActiveParentId(p.id)
+  }, [selectedRow, topLevels])
+
+  // 左侧"悬停意图"延时:鼠标在某一级分类上停留后才切换右栏,避免鼠标横穿时
+  // 快速扫过其它一级分类导致右栏被误切。不再需要时取消。
+  const hoverTimerRef = useRef<number | null>(null)
+  const scheduleParent = (id: string) => {
+    if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current)
+    hoverTimerRef.current = window.setTimeout(() => setActiveParentId(id), 150)
+  }
+  const cancelHoverIntent = () => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+  }
+
   if (topLevels.length === 0) {
     return (
       <div className={`py-8 text-center text-sm text-muted-foreground ${className || ''}`.trim()}>
-        {emptyText ?? '暂无分类'}
+        {emptyText ?? t('categories.empty.byType')}
+      </div>
+    )
+  }
+
+  // 左右两栏目录(随手记风格):左侧悬停/点击切一级分类,右侧一键选子级。
+  if (variant === 'pane') {
+    return (
+      <div className={`flex max-h-[60vh] overflow-hidden ${className || ''}`.trim()}>
+        <div className="w-[45%] shrink-0 overflow-y-auto border-r border-border/60 pr-1" onMouseLeave={cancelHoverIntent}>
+          {topLevels.map((top) => {
+            const hasChildren = (childrenByParentName[(top.name || '').trim().toLowerCase()]?.length ?? 0) > 0
+            const isActive = activeParentId === top.id
+            const isSelected = selectedId === top.id
+            return (
+              <button
+                key={top.id}
+                type="button"
+                onMouseEnter={() => scheduleParent(top.id)}
+                onClick={() => (hasChildren ? setActiveParentId(top.id) : onSelect(top))}
+                className={`flex w-full items-center justify-between gap-1 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                  isActive ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent/50'
+                } ${isSelected ? 'font-medium text-primary' : ''}`}
+              >
+                <span className="truncate">{top.name}</span>
+                {hasChildren ? <span className="shrink-0 text-muted-foreground opacity-60">›</span> : null}
+              </button>
+            )
+          })}
+        </div>
+        <div className="min-w-0 flex-1 overflow-y-auto pl-2">
+          {activeParent ? (
+            activeChildren.length > 0 ? (
+              activeChildren.map((child) => {
+                const isSelected = selectedId === child.id
+                return (
+                  <button
+                    key={child.id}
+                    type="button"
+                    onClick={() => onSelect(child)}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
+                      isSelected ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent/50'
+                    }`}
+                  >
+                    <CategoryIcon
+                      icon={child.icon}
+                      iconType={child.icon_type}
+                      iconCloudFileId={child.icon_cloud_file_id}
+                      iconPreviewUrlByFileId={iconPreviewUrlByFileId}
+                      size={16}
+                      className={isSelected ? 'text-primary' : 'text-muted-foreground'}
+                    />
+                    <span className="truncate">{child.name}</span>
+                  </button>
+                )
+              })
+            ) : (
+              <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectChildren', { name: activeParent.name })}</p>
+            )
+          ) : (
+            <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectParent')}</p>
+          )}
+        </div>
       </div>
     )
   }

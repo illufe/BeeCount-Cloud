@@ -17,8 +17,16 @@
 
 export const SW_UPDATE_EVENT = 'pwa:sw-update-available'
 export const SW_UPDATE_ACCEPT_EVENT = 'pwa:sw-update-accept'
+export const DEV_SERVICE_WORKER_CACHE = 'beecount-web-v2'
 
 let activeRegistration: ServiceWorkerRegistration | null = null
+
+/** Dev server must not be controlled by the production cache-first worker. */
+export async function clearDevelopmentServiceWorker(): Promise<void> {
+  const registrations = await navigator.serviceWorker.getRegistrations()
+  await Promise.all(registrations.map((registration) => registration.unregister()))
+  if ('caches' in window) await window.caches.delete(DEV_SERVICE_WORKER_CACHE)
+}
 
 export function setupServiceWorkerUpdates(registration: ServiceWorkerRegistration): void {
   activeRegistration = registration

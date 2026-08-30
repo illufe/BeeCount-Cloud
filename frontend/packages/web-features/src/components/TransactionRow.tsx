@@ -27,6 +27,7 @@ type CommonProps = {
   /** 点编辑 / 删除 的回调；不传则隐藏对应按钮。 */
   onEdit?: (row: ReadTransaction) => void
   onDelete?: (row: ReadTransaction) => void
+  onCopy?: (row: ReadTransaction) => void
   canManage?: boolean
   /** 附件预览入口：点行内 📎 chip 时触发。接收整组 attachments + 起始 index，
    *  让预览 Dialog 能做 prev/next 轮播。单附件时传 [attachment], 0 即可。 */
@@ -73,6 +74,7 @@ export function TransactionRow({
   iconPreviewUrlByFileId,
   onEdit,
   onDelete,
+  onCopy,
   canManage = true,
   onPreviewAttachment,
   onClickTag,
@@ -220,7 +222,7 @@ export function TransactionRow({
 
         {/* 右上:hover 动作 + 金额 — self-start 钉顶 */}
         <div className="flex shrink-0 items-center justify-end gap-2 self-start">
-          {(onEdit || onDelete) && !isCompact && !selectionMode ? (
+          {(onEdit || onDelete || onCopy) && !isCompact && !selectionMode ? (
             <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
               {onEdit ? (
                 <button
@@ -233,6 +235,19 @@ export function TransactionRow({
                   className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-primary/15 hover:text-primary"
                 >
                   {t('common.edit')}
+                </button>
+              ) : null}
+              {onCopy ? (
+                <button
+                  type="button"
+                  disabled={!canManage}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onCopy(row)
+                  }}
+                  className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-primary/15 hover:text-primary"
+                >
+                  {t('common.copy')}
                 </button>
               ) : null}
               {onDelete ? (
@@ -346,8 +361,10 @@ export function TransactionRow({
  *     - 第 2 个:「{editor} 最后编辑」
  * - 头像:server avatar_url 失败 fallback 首字母色块。hover 才显示 label
  *   减少视觉噪声;label 走 native title (浏览器 tooltip)。
+ *
+ * 导出让 TransactionTable(流水表格)复用,保持跨组件视觉一致。
  */
-function CreatorEditorChip({
+export function CreatorEditorChip({
   row,
   currentUserId,
   t,

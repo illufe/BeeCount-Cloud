@@ -27,6 +27,7 @@ interface Props {
   canManage?: boolean
   onEdit?: (row: ReadTransaction) => void
   onDelete?: (row: ReadTransaction) => void
+  onCopy?: (row: ReadTransaction) => void
   onPreviewAttachment?: (
     refs: AttachmentRef[],
     startIndex: number
@@ -78,6 +79,7 @@ export function TransactionList({
   canManage = true,
   onEdit,
   onDelete,
+  onCopy,
   onPreviewAttachment,
   resolveAttachmentPreviewUrl,
   onClickTag,
@@ -153,6 +155,7 @@ export function TransactionList({
                 iconPreviewUrlByFileId={iconPreviewUrlByFileId}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onCopy={onCopy}
                 canManage={canManage}
                 onPreviewAttachment={onPreviewAttachment}
                 onClickTag={onClickTag}
