@@ -36,13 +36,14 @@ import {
   AccountMultiSelect,
   CategoryMultiSelect,
   TransactionForm,
-  TransactionList,
+  TransactionTable,
   buildTxPayload,
   canWriteTransactions,
   groupAccountPickerOptions,
   isCustomDateFilter,
   loadRatesToBase,
   naturalMonthDateRange,
+  openNativePicker,
   quickAddFormAfterSave,
   resolveCurrencyFields,
   txDefaults,
@@ -55,6 +56,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useLedgers } from '../../context/LedgersContext'
 import { useSyncRefresh } from '../../context/SyncSocketContext'
 import { localizeError } from '../../i18n/errors'
+import { dispatchOpenDetailTx } from '../../lib/txDialogEvents'
 
 type QuickAddFilter = {
   q: string
@@ -393,7 +395,7 @@ export function QuickAddPage() {
     if (!workspaceRow) return
     setWriteLedgerId(workspaceRow.ledger_id || writeLedgerId)
     setForm(rowToForm(workspaceRow, ledgerCurrency))
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    // 表单面板已 sticky 钉在视口顶部,无需再自动回滚页面顶部。
   }
 
   const onCopy = (row: ReadTransaction) => {
@@ -402,7 +404,6 @@ export function QuickAddPage() {
     setWriteLedgerId(workspaceRow.ledger_id || writeLedgerId)
     const next = rowToForm(workspaceRow, ledgerCurrency)
     setForm({ ...next, editingId: null, editingOwnerUserId: '' })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const onDelete = async (row: ReadTransaction) => {
@@ -422,7 +423,7 @@ export function QuickAddPage() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+        <div className="space-y-4 xl:sticky xl:top-[84px] xl:self-start">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{t('quickAdd.title')}</h1>
             <p className="mt-0.5 text-xs text-muted-foreground">{t('quickAdd.description')}</p>
@@ -450,10 +451,10 @@ export function QuickAddPage() {
                   >
                     <span className="shrink-0">{index + 1}{t('quickAdd.month')}</span>
                     <span className="flex min-w-0 shrink flex-col items-end text-[11px] leading-tight">
-                      <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                      <span className="tabular-nums text-income">
                         {t('quickAdd.incomeShort')} {formatAmount(item?.income || 0)}
                       </span>
-                      <span className="tabular-nums text-red-600 dark:text-red-400">
+                      <span className="tabular-nums text-expense">
                         {t('quickAdd.expenseShort')} {formatAmount(item?.expense || 0)}
                       </span>
                     </span>
@@ -465,7 +466,9 @@ export function QuickAddPage() {
         </div>
 
         <div className="min-w-0 space-y-4">
-          <Card>
+          {/* 快速记账面板钉在视口顶部:列表里点 编辑/复制 后表单始终可见,无需回滚。
+              bg-card 为不透明背景 + z-10,下方筛选/汇总/列表滚动经过时不会透出。 */}
+          <Card className="sticky top-[84px] z-10">
             <CardContent className="pt-5">
               <TransactionForm
                 form={form}
@@ -548,9 +551,10 @@ export function QuickAddPage() {
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-medium text-muted-foreground">{t('shell.filter.date')}</span>
-                <Input type="date" className="h-9 w-[126px]" value={filter.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
+                {/* 点击控件任意位置即弹出原生日期选择器(与记账表单时间控件一致) */}
+                <Input type="date" className="h-9 w-[126px]" value={filter.dateFrom} onClick={openNativePicker} onChange={(event) => updateFilter('dateFrom', event.target.value)} />
                 <span className="text-muted-foreground">~</span>
-                <Input type="date" className="h-9 w-[126px]" value={filter.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} />
+                <Input type="date" className="h-9 w-[126px]" value={filter.dateTo} onClick={openNativePicker} onChange={(event) => updateFilter('dateTo', event.target.value)} />
               </div>
               <Input placeholder={t('shell.placeholder.keyword')} className="h-9 w-[150px] min-w-[120px]" value={filter.q} onChange={(event) => updateFilter('q', event.target.value)} />
               <Button size="sm" onClick={applyFilter}>{t('shell.filter.apply')}</Button>
@@ -569,15 +573,15 @@ export function QuickAddPage() {
           <Card>
             <CardHeader><CardTitle className="text-base">{t('quickAdd.list')}</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <TransactionList
+              <TransactionTable
                 items={rows}
-                tags={tags}
                 categories={categories}
                 canManage={Boolean(activeWritableLedger)}
                 onEdit={onEdit}
                 onCopy={onCopy}
                 onDelete={onDelete}
                 loading={loading}
+                onSelect={(row) => dispatchOpenDetailTx(row as WorkspaceTransaction)}
               />
               <Pagination
                 page={page}

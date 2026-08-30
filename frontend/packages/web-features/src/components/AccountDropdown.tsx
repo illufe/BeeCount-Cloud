@@ -19,6 +19,8 @@ type AccountDropdownProps = {
   onSelect: (name: string) => void
   /** 触发控件高度:md=表单用(h-10),sm=筛选栏用(h-9)。 */
   size?: 'md' | 'sm'
+  /** 横向布局:label 在左、控件在右(compact 记账表单用);默认 label 在上。 */
+  inline?: boolean
 }
 
 /**
@@ -34,6 +36,7 @@ export function AccountDropdown({
   placeholder,
   onSelect,
   size = 'md',
+  inline = false,
 }: AccountDropdownProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -86,9 +89,9 @@ export function AccountDropdown({
   const hasValue = Boolean(value.trim())
 
   return (
-    <div className="space-y-1">
-      <Label>{label}</Label>
-      <div ref={rootRef} className="relative">
+    <div className={inline ? 'flex items-center gap-2' : 'space-y-1'}>
+      <Label className={inline ? 'shrink-0 whitespace-nowrap text-xs font-medium text-muted-foreground' : undefined}>{label}</Label>
+      <div ref={rootRef} className={inline ? 'relative min-w-0 flex-1' : 'relative'}>
         <button
           type="button"
           disabled={disabled}

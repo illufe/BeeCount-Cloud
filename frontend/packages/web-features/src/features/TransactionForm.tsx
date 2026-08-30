@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 
 import {
   Button,
@@ -19,6 +19,7 @@ import { CurrencySelectorTrigger } from '../components/CurrencySelector'
 import { TagPickerDialog } from '../components/TagPickerDialog'
 import type { TxForm } from '../forms'
 import { groupAccountPickerOptions } from '../lib/accountGroups'
+import { openNativePicker } from '../lib/datePicker'
 import { tagTextColorOn } from '../lib/tagColorPalette'
 
 export type TransactionFormProps = {
@@ -142,15 +143,45 @@ export function TransactionForm({
     })
   }
 
-  const openDateTimePicker = (event: React.MouseEvent<HTMLInputElement>) => {
-    const el = event.currentTarget
-    if (typeof el.showPicker !== 'function') return
-    try {
-      el.showPicker()
-    } catch {
-      // picker already open, or the browser/context disallows showPicker()
-    }
-  }
+  // 标签编辑字段:compact(快速记账)下独占一整行,不占用 4 列网格的横向单元格;
+  // dialog 保持普通单元格。QuickAdd 传 showTags=false 时不渲染。
+  const tagsField = showTags ? (
+    <div className={compact ? 'col-span-full space-y-1' : 'space-y-1'}>
+      <Label>{t('tags.title')}</Label>
+      <button
+        type="button"
+        disabled={dictionariesLoading}
+        onClick={() => setTagPickerOpen(true)}
+        className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className="flex flex-1 items-center gap-1 overflow-hidden">
+          {form.tags.length === 0 ? (
+            <span className="text-muted-foreground">{t('common.none')}</span>
+          ) : (
+            <span className="flex flex-wrap items-center gap-1 overflow-hidden">
+              {form.tags.slice(0, 3).map((name) => {
+                const color = tagColorByName.get(name.trim().toLowerCase()) || '#94a3b8'
+                return (
+                  <span
+                    key={name}
+                    className="inline-flex h-5 max-w-[120px] items-center rounded-full px-1.5 text-[11px] leading-none"
+                    style={{ background: color, color: tagTextColorOn(color) }}
+                    title={name}
+                  >
+                    <span className="truncate">{name}</span>
+                  </span>
+                )
+              })}
+              {form.tags.length > 3 ? (
+                <span className="text-[11px] text-muted-foreground">+{form.tags.length - 3}</span>
+              ) : null}
+            </span>
+          )}
+        </span>
+        <span className="text-xs text-muted-foreground opacity-60">▾</span>
+      </button>
+    </div>
+  ) : null
 
   return (
     <>
@@ -175,171 +206,122 @@ export function TransactionForm({
         </div>
       ) : null}
 
-      <div className="space-y-1">
-        <Label>{t('transactions.table.type')}</Label>
-        <Select value={form.tx_type} onValueChange={(value) => applyTxType(value as TxForm['tx_type'])}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="expense">{t('enum.txType.expense')}</SelectItem>
-            <SelectItem value="income">{t('enum.txType.income')}</SelectItem>
-            <SelectItem value="transfer">{t('enum.txType.transfer')}</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* 转账无分类:隐藏该字段(isTransfer 时 category 恒为空),避免紧凑网格
-          第一行变成"类型/分类(禁用)/从账户/到账户/金额"5 项把金额挤到单独一行。
-          隐藏后恰好 4 项:"类型/从账户/到账户/金额" 占满第一行,恢复两行布局。 */}
-      {!isTransfer ? (
-        <div className="space-y-1">
-          <Label>{t('transactions.table.category')}</Label>
-          <CategoryDropdown
-            kind={form.tx_type === 'income' ? 'income' : 'expense'}
-            rows={categories as readonly WorkspaceCategory[]}
-            selected={selectedCategoryRow}
-            dictionariesLoading={dictionariesLoading}
-            iconPreviewUrlByFileId={iconPreviewUrlByFileId}
-            placeholder={t('transactions.placeholder.categoryName')}
-            onSelect={(category) => onFormChange({
-              ...form,
-              category_name: category.name.trim(),
-              category_kind: form.tx_type,
-            })}
-          />
-        </div>
-      ) : null}
-
-      {isTransfer ? (
-        <>
-          <AccountDropdown
-            label={t('transactions.placeholder.fromAccountName')}
-            value={form.from_account_name}
-            groups={groupedAccountOptions}
-            disabled={dictionariesLoading}
-            onSelect={(value) => onFormChange({ ...form, from_account_name: value })}
-          />
-          <AccountDropdown
-            label={t('transactions.placeholder.toAccountName')}
-            value={form.to_account_name}
-            groups={groupedAccountOptions}
-            disabled={dictionariesLoading}
-            onSelect={(value) => onFormChange({ ...form, to_account_name: value })}
-          />
-        </>
-      ) : (
-        <AccountDropdown
-          label={t('transactions.table.account')}
-          value={form.account_name}
-          groups={groupedAccountOptions}
-          disabled={dictionariesLoading}
-          allowNone
-          placeholder={t('transactions.placeholder.noAccount')}
-          onSelect={(value) => onFormChange({ ...form, account_name: value })}
-        />
-      )}
-
-      <div className="space-y-1">
-        <Label>{t('transactions.table.amount')}</Label>
-        {compact && !isTransfer ? (
-          <div className="flex items-center gap-2">
-            <Input
-              className="min-w-0 flex-1"
-              placeholder={t('transactions.placeholder.amount')}
-              value={form.amount}
-              onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
-            />
-            <span
-              className="shrink-0 rounded-md border border-input bg-muted/60 px-2 py-1 text-xs font-medium text-muted-foreground"
-              title={t('transactions.currencyFromAccount')}
-            >
-              {effectiveCurrency}
-            </span>
-          </div>
-        ) : (
-          <>
-            <Input
-              placeholder={t('transactions.placeholder.amount')}
-              value={form.amount}
-              onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
-            />
-            {!isTransfer ? (
-              <CurrencySelectorTrigger
-                value={form.currency || baseCurrency}
-                onChange={(code) => onFormChange({
-                  ...form,
-                  currency: code.toUpperCase() === baseCurrency.toUpperCase() ? '' : code,
-                  account_name: '',
-                })}
-                ratesToBase={currencyRates}
-                rateBase={baseCurrency}
-              />
-            ) : null}
-          </>
-        )}
-      </div>
-
-      {showTags ? (
-        <div className="space-y-1">
-          <Label>{t('tags.title')}</Label>
-          <button
-            type="button"
-            disabled={dictionariesLoading}
-            onClick={() => setTagPickerOpen(true)}
-            className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <span className="flex flex-1 items-center gap-1 overflow-hidden">
-              {form.tags.length === 0 ? (
-                <span className="text-muted-foreground">{t('common.none')}</span>
-              ) : (
-                <span className="flex flex-wrap items-center gap-1 overflow-hidden">
-                  {form.tags.slice(0, 3).map((name) => {
-                    const color = tagColorByName.get(name.trim().toLowerCase()) || '#94a3b8'
-                    return (
-                      <span
-                        key={name}
-                        className="inline-flex h-5 max-w-[120px] items-center rounded-full px-1.5 text-[11px] leading-none"
-                        style={{ background: color, color: tagTextColorOn(color) }}
-                        title={name}
-                      >
-                        <span className="truncate">{name}</span>
-                      </span>
-                    )
-                  })}
-                  {form.tags.length > 3 ? (
-                    <span className="text-[11px] text-muted-foreground">+{form.tags.length - 3}</span>
-                  ) : null}
-                </span>
-              )}
-            </span>
-            <span className="text-xs text-muted-foreground opacity-60">▾</span>
-          </button>
-        </div>
-      ) : null}
-
       {compact ? (
-        <div className="col-span-full flex flex-wrap items-end gap-x-3 gap-y-2">
-          <div className="w-[200px] shrink-0 space-y-1">
-            <Label>{t('transactions.table.time')}</Label>
+        <>
+          {/* 第一行:类型 / 分类(转账→从账户+到账户)/ 账户 / 金额。
+              横向单元格:label 在左、控件在右,lg 4 列正好占满一行。 */}
+          <InlineField label={t('transactions.table.type')}>
+            <Select value={form.tx_type} onValueChange={(value) => applyTxType(value as TxForm['tx_type'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="expense">{t('enum.txType.expense')}</SelectItem>
+                <SelectItem value="income">{t('enum.txType.income')}</SelectItem>
+                <SelectItem value="transfer">{t('enum.txType.transfer')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </InlineField>
+
+          {/* 转账无分类:隐藏该字段(isTransfer 时 category 恒为空),避免紧凑网格
+              第一行变成"类型/分类(禁用)/从账户/到账户/金额"5 项把金额挤到单独一行。
+              隐藏后恰好 4 项:"类型/从账户/到账户/金额" 占满第一行,恢复两行布局。 */}
+          {!isTransfer ? (
+            <InlineField label={t('transactions.table.category')}>
+              <CategoryDropdown
+                kind={form.tx_type === 'income' ? 'income' : 'expense'}
+                rows={categories as readonly WorkspaceCategory[]}
+                selected={selectedCategoryRow}
+                dictionariesLoading={dictionariesLoading}
+                iconPreviewUrlByFileId={iconPreviewUrlByFileId}
+                placeholder={t('transactions.placeholder.categoryName')}
+                onSelect={(category) => onFormChange({
+                  ...form,
+                  category_name: category.name.trim(),
+                  category_kind: form.tx_type,
+                })}
+              />
+            </InlineField>
+          ) : null}
+
+          {isTransfer ? (
+            <>
+              <AccountDropdown
+                inline
+                label={t('transactions.placeholder.fromAccountName')}
+                value={form.from_account_name}
+                groups={groupedAccountOptions}
+                disabled={dictionariesLoading}
+                onSelect={(value) => onFormChange({ ...form, from_account_name: value })}
+              />
+              <AccountDropdown
+                inline
+                label={t('transactions.placeholder.toAccountName')}
+                value={form.to_account_name}
+                groups={groupedAccountOptions}
+                disabled={dictionariesLoading}
+                onSelect={(value) => onFormChange({ ...form, to_account_name: value })}
+              />
+            </>
+          ) : (
+            <AccountDropdown
+              inline
+              label={t('transactions.table.account')}
+              value={form.account_name}
+              groups={groupedAccountOptions}
+              disabled={dictionariesLoading}
+              allowNone
+              placeholder={t('transactions.placeholder.noAccount')}
+              onSelect={(value) => onFormChange({ ...form, account_name: value })}
+            />
+          )}
+
+          <InlineField label={t('transactions.table.amount')}>
+            {!isTransfer ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="min-w-0 flex-1"
+                  placeholder={t('transactions.placeholder.amount')}
+                  value={form.amount}
+                  onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
+                />
+                <span
+                  className="shrink-0 rounded-md border border-input bg-muted/60 px-2 py-1 text-xs font-medium text-muted-foreground"
+                  title={t('transactions.currencyFromAccount')}
+                >
+                  {effectiveCurrency}
+                </span>
+              </div>
+            ) : (
+              <Input
+                placeholder={t('transactions.placeholder.amount')}
+                value={form.amount}
+                onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
+              />
+            )}
+          </InlineField>
+
+          {tagsField}
+
+          {/* 第二行:时间 / 备注 / 开关 chips / 操作按钮 */}
+          <InlineField label={t('transactions.table.time')}>
             <Input
               type="datetime-local"
               step={60}
-              onClick={openDateTimePicker}
+              onClick={openNativePicker}
               value={isoToDatetimeLocal(form.happened_at)}
               onChange={(event) => onFormChange({
                 ...form,
                 happened_at: datetimeLocalToIso(event.target.value, form.happened_at),
               })}
             />
-          </div>
-          <div className="min-w-0 flex-1 max-w-[420px] space-y-1">
-            <Label>{t('transactions.table.note')}</Label>
+          </InlineField>
+          <InlineField label={t('transactions.table.note')}>
             <Input
               placeholder={t('transactions.placeholder.note')}
               value={form.note}
               onChange={(event) => onFormChange({ ...form, note: event.target.value })}
             />
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
+          </InlineField>
+          <div className="flex items-center gap-1.5">
             {!isTransfer ? (
               <SwitchChip
                 label={t('txFlagExcludeFromStats')}
@@ -356,22 +338,107 @@ export function TransactionForm({
             ) : null}
           </div>
           {showActions ? (
-            <div className="ml-auto flex shrink-0 items-center gap-2">
+            <div className="flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" onClick={onReset}>{t('transactions.button.reset')}</Button>
               <Button size="sm" disabled={!canWrite || !canSubmit} onClick={() => void onSave()}>
                 {form.editingId ? t('transactions.button.update') : t('transactions.button.create')}
               </Button>
             </div>
           ) : null}
-        </div>
+        </>
       ) : (
         <>
+          <div className="space-y-1">
+            <Label>{t('transactions.table.type')}</Label>
+            <Select value={form.tx_type} onValueChange={(value) => applyTxType(value as TxForm['tx_type'])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="expense">{t('enum.txType.expense')}</SelectItem>
+                <SelectItem value="income">{t('enum.txType.income')}</SelectItem>
+                <SelectItem value="transfer">{t('enum.txType.transfer')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {!isTransfer ? (
+            <div className="space-y-1">
+              <Label>{t('transactions.table.category')}</Label>
+              <CategoryDropdown
+                kind={form.tx_type === 'income' ? 'income' : 'expense'}
+                rows={categories as readonly WorkspaceCategory[]}
+                selected={selectedCategoryRow}
+                dictionariesLoading={dictionariesLoading}
+                iconPreviewUrlByFileId={iconPreviewUrlByFileId}
+                placeholder={t('transactions.placeholder.categoryName')}
+                onSelect={(category) => onFormChange({
+                  ...form,
+                  category_name: category.name.trim(),
+                  category_kind: form.tx_type,
+                })}
+              />
+            </div>
+          ) : null}
+
+          {isTransfer ? (
+            <>
+              <AccountDropdown
+                label={t('transactions.placeholder.fromAccountName')}
+                value={form.from_account_name}
+                groups={groupedAccountOptions}
+                disabled={dictionariesLoading}
+                onSelect={(value) => onFormChange({ ...form, from_account_name: value })}
+              />
+              <AccountDropdown
+                label={t('transactions.placeholder.toAccountName')}
+                value={form.to_account_name}
+                groups={groupedAccountOptions}
+                disabled={dictionariesLoading}
+                onSelect={(value) => onFormChange({ ...form, to_account_name: value })}
+              />
+            </>
+          ) : (
+            <AccountDropdown
+              label={t('transactions.table.account')}
+              value={form.account_name}
+              groups={groupedAccountOptions}
+              disabled={dictionariesLoading}
+              allowNone
+              placeholder={t('transactions.placeholder.noAccount')}
+              onSelect={(value) => onFormChange({ ...form, account_name: value })}
+            />
+          )}
+
+          <div className="space-y-1">
+            <Label>{t('transactions.table.amount')}</Label>
+            <>
+              <Input
+                placeholder={t('transactions.placeholder.amount')}
+                value={form.amount}
+                onChange={(event) => onFormChange({ ...form, amount: event.target.value })}
+              />
+              {!isTransfer ? (
+                <CurrencySelectorTrigger
+                  value={form.currency || baseCurrency}
+                  onChange={(code) => onFormChange({
+                    ...form,
+                    currency: code.toUpperCase() === baseCurrency.toUpperCase() ? '' : code,
+                    account_name: '',
+                  })}
+                  ratesToBase={currencyRates}
+                  rateBase={baseCurrency}
+                />
+              ) : null}
+            </>
+          </div>
+
+          {tagsField}
+
           <div className="space-y-1">
             <Label>{t('transactions.table.time')}</Label>
             <Input
               type="datetime-local"
               step={60}
-              onClick={openDateTimePicker}
+              onClick={openNativePicker}
               value={isoToDatetimeLocal(form.happened_at)}
               onChange={(event) => onFormChange({
                 ...form,
@@ -425,6 +492,20 @@ export function TransactionForm({
         />
       ) : null}
     </>
+  )
+}
+
+/**
+ * compact(快速记账)表单的横向单元格:label 在左、控件在右,整格高度只占一行,
+ * 让 4 列网格把表单压到两行。label 用灰小字 + whitespace-nowrap 避免换行;
+ * 控件用 min-w-0 flex-1 自适应剩余宽度。
+ */
+function InlineField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <Label className="shrink-0 whitespace-nowrap text-xs font-medium text-muted-foreground">{label}</Label>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
   )
 }
 

@@ -361,8 +361,10 @@ export function TransactionRow({
  *     - 第 2 个:「{editor} 最后编辑」
  * - 头像:server avatar_url 失败 fallback 首字母色块。hover 才显示 label
  *   减少视觉噪声;label 走 native title (浏览器 tooltip)。
+ *
+ * 导出让 TransactionTable(流水表格)复用,保持跨组件视觉一致。
  */
-function CreatorEditorChip({
+export function CreatorEditorChip({
   row,
   currentUserId,
   t,
