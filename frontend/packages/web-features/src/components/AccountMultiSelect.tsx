@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { useT } from '@beecount/ui'
+
 import type { AccountGroup } from '../lib/accountGroups'
 
 type AccountMultiSelectProps = {
@@ -7,9 +9,9 @@ type AccountMultiSelectProps = {
   groups: AccountGroup[]
   /** 未选中时的占位文案。 */
   placeholder: string
-  /** 已选中的账户名列表。 */
+  /** 已选中的账户 syncId 列表。 */
   selected: string[]
-  onChange: (names: string[]) => void
+  onChange: (ids: string[]) => void
   /** 允许清空回到占位(用于筛选栏)。选中时触发控件内出现 "×" 按钮。 */
   allowClear?: boolean
   onClear?: () => void
@@ -37,6 +39,7 @@ export function AccountMultiSelect({
   popoverClassName = 'w-[320px]',
   title,
 }: AccountMultiSelectProps) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [activeGroupIdx, setActiveGroupIdx] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -62,7 +65,7 @@ export function AccountMultiSelect({
     if (!open) return
     setActiveGroupIdx((prev) => {
       if (groups.length === 0) return prev
-      const selectedIdx = groups.findIndex((g) => g.accounts.some((a) => selected.includes(a.name.trim())))
+      const selectedIdx = groups.findIndex((g) => g.accounts.some((a) => selected.includes(a.id)))
       return selectedIdx >= 0 ? selectedIdx : Math.min(prev, groups.length - 1)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -70,8 +73,8 @@ export function AccountMultiSelect({
 
   const activeGroup = groups[activeGroupIdx] || null
 
-  const toggle = (name: string) => {
-    onChange(selected.includes(name) ? selected.filter((v) => v !== name) : [...selected, name])
+  const toggle = (id: string) => {
+    onChange(selected.includes(id) ? selected.filter((v) => v !== id) : [...selected, id])
   }
 
   // 左栏"悬停意图"延时切换右栏,避免鼠标横穿时误切。
@@ -88,6 +91,11 @@ export function AccountMultiSelect({
   }
 
   const hasSelection = selected.length > 0
+  const selectedLabel = groups
+    .flatMap((group) => group.accounts)
+    .filter((account) => selected.includes(account.id))
+    .map((account) => account.name.trim())
+    .join('、')
 
   return (
     <div ref={rootRef} className="relative">
@@ -98,7 +106,7 @@ export function AccountMultiSelect({
         className={`flex h-9 items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-accent/40 ${triggerClassName || 'w-full'}`}
       >
         <span className={`flex-1 truncate ${hasSelection ? '' : 'text-muted-foreground'}`}>
-          {hasSelection ? selected.join('、') : placeholder}
+          {hasSelection ? selectedLabel || selected.join('、') : placeholder}
         </span>
         {hasSelection ? (
           <span className="shrink-0 rounded-full bg-primary/15 px-1.5 text-[11px] leading-4 text-primary">
@@ -162,16 +170,16 @@ export function AccountMultiSelect({
                   activeGroup.accounts.length > 0 ? (
                     activeGroup.accounts.map((account) => {
                       const name = account.name.trim()
-                      const checked = selected.includes(name)
+                      const checked = selected.includes(account.id)
                       return (
                         <label
-                          key={name}
+                          key={account.id}
                           className={`flex w-full cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors ${checked ? 'bg-accent/20 text-primary' : 'text-foreground hover:bg-accent/50'}`}
                         >
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={() => toggle(name)}
+                            onChange={() => toggle(account.id)}
                             className="h-4 w-4 shrink-0 accent-primary"
                           />
                           <span className="flex-1 truncate">{name}</span>
@@ -179,7 +187,7 @@ export function AccountMultiSelect({
                       )
                     })
                   ) : (
-                    <p className="px-2 py-2 text-[11px] text-muted-foreground">该类型暂无账户</p>
+                    <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('accounts.empty.byType')}</p>
                   )
                 ) : null}
               </div>

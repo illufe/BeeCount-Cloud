@@ -155,7 +155,8 @@ export async function fetchWorkspaceTransactions(
     txSyncId?: string
     tagSyncId?: string
     categorySyncId?: string | string[]
-    accountSyncId?: string
+    /** 按 account syncId 精确过滤；数组会编码为可重复的 query 参数。 */
+    accountSyncId?: string | string[]
     /** 金额下限(含),按 abs 比较 */
     amountMin?: number
     /** 金额上限(含) */
@@ -177,7 +178,7 @@ export async function fetchWorkspaceTransactions(
   if (options?.txSyncId) query.set('tx_sync_id', options.txSyncId)
   if (options?.tagSyncId) query.set('tag_sync_id', options.tagSyncId)
   for (const id of normalizeQueryArray(options?.categorySyncId)) query.append('category_sync_id', id)
-  if (options?.accountSyncId) query.set('account_sync_id', options.accountSyncId)
+  for (const id of normalizeQueryArray(options?.accountSyncId)) query.append('account_sync_id', id)
   if (typeof options?.amountMin === 'number') query.set('amount_min', `${options.amountMin}`)
   if (typeof options?.amountMax === 'number') query.set('amount_max', `${options.amountMax}`)
   if (options?.dateFrom) query.set('date_from', options.dateFrom)

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Label } from '@beecount/ui'
+import { Label, useT } from '@beecount/ui'
 
 import type { AccountGroup } from '../lib/accountGroups'
 
@@ -35,6 +35,7 @@ export function AccountDropdown({
   onSelect,
   size = 'md',
 }: AccountDropdownProps) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [activeGroupIdx, setActiveGroupIdx] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -167,7 +168,7 @@ export function AccountDropdown({
                         )
                       })
                     ) : (
-                      <p className="px-2 py-2 text-[11px] text-muted-foreground">该类型暂无账户</p>
+                      <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('accounts.empty.byType')}</p>
                     )
                   ) : null}
                 </div>

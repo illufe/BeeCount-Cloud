@@ -94,7 +94,7 @@ def list_workspace_transactions(
     tx_sync_id: str | None = Query(default=None, description="按 tx 自身 syncId 精确过滤(用于 admin/integrity 跳到具体交易)"),
     tag_sync_id: str | None = Query(default=None, description="按 tag syncId 精确过滤,不走模糊搜索"),
     category_sync_id: list[str] | None = Query(default=None, description="按 category syncId 精确过滤(可重复,多值任一命中)"),
-    account_sync_id: str | None = Query(default=None, description="按 account syncId 精确过滤(含 from/to)"),
+    account_sync_id: list[str] | None = Query(default=None, description="按 account syncId 精确过滤(含 from/to,可重复,多值任一命中)"),
     amount_min: float | None = Query(default=None, description="金额下限(含)。按 abs(amount) 比较以兼容 expense 负值"),
     amount_max: float | None = Query(default=None, description="金额上限(含)"),
     date_from: datetime | None = Query(default=None, description="happened_at >= date_from"),
@@ -207,11 +207,13 @@ def list_workspace_transactions(
         else:
             query = query.where(exact_category)
     if account_sync_id:
-        query = query.where(or_(
-            ReadTxProjection.account_sync_id == account_sync_id,
-            ReadTxProjection.from_account_sync_id == account_sync_id,
-            ReadTxProjection.to_account_sync_id == account_sync_id,
-        ))
+        account_sync_ids = [value.strip() for value in account_sync_id if value.strip()]
+        if account_sync_ids:
+            query = query.where(or_(
+                ReadTxProjection.account_sync_id.in_(account_sync_ids),
+                ReadTxProjection.from_account_sync_id.in_(account_sync_ids),
+                ReadTxProjection.to_account_sync_id.in_(account_sync_ids),
+            ))
     if q:
         pattern = f"%{q}%"
         query = query.where(or_(

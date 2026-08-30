@@ -21,6 +21,16 @@ export function naturalMonthDateRange(bucket: string): DateRange | null {
   }
 }
 
+/** applied 日期只要不是 selectedMonth 的完整自然月范围,就标记为自定义。 */
+export function isCustomDateFilter(
+  applied: Pick<DateRange, 'dateFrom' | 'dateTo'>,
+  selectedMonth: string,
+): boolean {
+  if (!selectedMonth) return Boolean(applied.dateFrom || applied.dateTo)
+  const range = naturalMonthDateRange(selectedMonth)
+  return !range || applied.dateFrom !== range.dateFrom || applied.dateTo !== range.dateTo
+}
+
 export function quickAddFormAfterSave(form: TxForm): TxForm {
   const next = {
     ...form,

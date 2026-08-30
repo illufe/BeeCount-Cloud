@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { WorkspaceCategory } from '@beecount/api-client'
+import { useT } from '@beecount/ui'
 
 type CategoryMultiSelectProps = {
   /** 分类方向:expense / income / all(筛选"不限类型"时收入+支出一起)。 */
@@ -47,9 +48,12 @@ export function CategoryMultiSelect({
   triggerClassName,
   popoverClassName = 'w-[320px]',
   title,
-  incomeLabel = '收入',
-  expenseLabel = '支出',
+  incomeLabel,
+  expenseLabel,
 }: CategoryMultiSelectProps) {
+  const t = useT()
+  const resolvedIncomeLabel = incomeLabel ?? t('enum.txType.income')
+  const resolvedExpenseLabel = expenseLabel ?? t('enum.txType.expense')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -98,7 +102,7 @@ export function CategoryMultiSelect({
       }
       tops.sort(sorter)
       for (const k of Object.keys(children)) children[k].sort(sorter)
-      const label = d === 'expense' ? expenseLabel : incomeLabel
+      const label = d === 'expense' ? resolvedExpenseLabel : resolvedIncomeLabel
       groups.push({ kind: d, label, tops })
       childrenByKindParent[d] = children
       for (const top of tops) {
@@ -112,7 +116,7 @@ export function CategoryMultiSelect({
     }
     const topLevels = groups.flatMap((g) => g.tops)
     return { groups, childrenByKindParent, topLevels, labelById, childParentTopId }
-  }, [rows, kind, incomeLabel, expenseLabel])
+  }, [rows, kind, resolvedIncomeLabel, resolvedExpenseLabel])
 
   // 右侧栏当前突出的一级分类。
   const [activeParentId, setActiveParentId] = useState<string | null>(null)
@@ -232,7 +236,7 @@ export function CategoryMultiSelect({
                       <p className="px-2 pb-0.5 pt-1.5 text-[11px] font-medium text-muted-foreground">{group.label}</p>
                     ) : null}
                     {group.tops.length === 0 ? (
-                      <p className="px-2 py-1 text-[11px] text-muted-foreground/70">暂无分类</p>
+                      <p className="px-2 py-1 text-[11px] text-muted-foreground/70">{t('categories.empty.byType')}</p>
                     ) : (
                       group.tops.map((top) => {
                         const hasChildren = (childrenByKindParent[top.kind as 'expense' | 'income'][key(top.name)]?.length ?? 0) > 0
@@ -274,10 +278,10 @@ export function CategoryMultiSelect({
                       )
                     })
                   ) : (
-                    <p className="px-2 py-2 text-[11px] text-muted-foreground">选择「{activeParent.name}」</p>
+                    <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectChildren', { name: activeParent.name })}</p>
                   )
                 ) : (
-                  <p className="px-2 py-2 text-[11px] text-muted-foreground">请选择左侧分类</p>
+                  <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectParent')}</p>
                 )}
               </div>
             </div>

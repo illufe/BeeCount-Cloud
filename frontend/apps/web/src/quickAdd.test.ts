@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { naturalMonthDateRange, quickAddFormAfterSave, txDefaults } from '@beecount/web-features'
+import { isCustomDateFilter, naturalMonthDateRange, quickAddFormAfterSave, txDefaults } from '@beecount/web-features'
 
 describe('quick add helpers', () => {
   it('creates an inclusive natural month range including leap day', () => {
@@ -13,6 +13,14 @@ describe('quick add helpers', () => {
   it('rejects invalid month buckets', () => {
     expect(naturalMonthDateRange('2024-13')).toBeNull()
     expect(naturalMonthDateRange('2024-2')).toBeNull()
+  })
+
+  it('marks incomplete or non-month dates as custom, including without a selected month', () => {
+    expect(isCustomDateFilter({ dateFrom: '2024-02-01', dateTo: '2024-02-29' }, '2024-02')).toBe(false)
+    expect(isCustomDateFilter({ dateFrom: '', dateTo: '2024-02-29' }, '2024-02')).toBe(true)
+    expect(isCustomDateFilter({ dateFrom: '2024-02-01', dateTo: '' }, '2024-02')).toBe(true)
+    expect(isCustomDateFilter({ dateFrom: '2024-02-01', dateTo: '2024-02-29' }, '')).toBe(true)
+    expect(isCustomDateFilter({ dateFrom: '', dateTo: '' }, '')).toBe(false)
   })
 
   it('keeps normal entry selections and clears transient fields after save', () => {

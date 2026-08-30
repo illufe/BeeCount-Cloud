@@ -302,6 +302,10 @@ export function GlobalEditDialogs() {
     t,
     notifyError,
     notifySuccess,
+    ledgers,
+    editTxAccounts,
+    editTxCategories,
+    editTxTags,
   ])
 
   void currency

@@ -16,8 +16,10 @@ import type { ReadAccount, ReadCategory, ReadTag, WorkspaceCategory } from '@bee
 import { AccountDropdown } from '../components/AccountDropdown'
 import { CategoryDropdown } from '../components/CategoryDropdown'
 import { CurrencySelectorTrigger } from '../components/CurrencySelector'
+import { TagPickerDialog } from '../components/TagPickerDialog'
 import type { TxForm } from '../forms'
 import { groupAccountPickerOptions } from '../lib/accountGroups'
+import { tagTextColorOn } from '../lib/tagColorPalette'
 
 export type TransactionFormProps = {
   form: TxForm
@@ -39,6 +41,8 @@ export type TransactionFormProps = {
   showActions?: boolean
   /** 内联宽幅页面（如 记一笔 quick-add）使用更密的横向布局；dialog 保持默认。 */
   compact?: boolean
+  /** 是否显示标签编辑；QuickAdd 明确隐藏，旧交易/全局编辑 dialog 保持显示。 */
+  showTags?: boolean
 }
 
 export function TransactionForm({
@@ -47,7 +51,7 @@ export function TransactionForm({
   currencyRates,
   accounts,
   categories,
-  tags: _tags,
+  tags,
   ledgerOptions,
   writeLedgerId,
   onWriteLedgerIdChange,
@@ -59,9 +63,19 @@ export function TransactionForm({
   iconPreviewUrlByFileId,
   showActions = true,
   compact = false,
+  showTags = true,
 }: TransactionFormProps) {
   const t = useT()
   const isTransfer = form.tx_type === 'transfer'
+  const [tagPickerOpen, setTagPickerOpen] = useState(false)
+  const tagColorByName = useMemo(() => {
+    const colors = new Map<string, string>()
+    for (const tag of tags) {
+      const name = tag.name.trim().toLowerCase()
+      if (name && tag.color && !colors.has(name)) colors.set(name, tag.color)
+    }
+    return colors
+  }, [tags])
 
   // 按账户类型分组(现金/银行卡/信用卡/支付宝/微信/投资/保险/贷款/不动产/其他),
   // 复用资产页"类型分组"的心智模型,避免账户平铺成一长串难找。
@@ -139,7 +153,8 @@ export function TransactionForm({
   }
 
   return (
-    <div className={compact ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4' : 'grid gap-3 md:grid-cols-2'}>
+    <>
+      <div className={compact ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4' : 'grid gap-3 md:grid-cols-2'}>
       {!compact ? (
         <div className="space-y-1">
           <Label>{t('shell.ledger')}</Label>
@@ -263,6 +278,44 @@ export function TransactionForm({
         )}
       </div>
 
+      {showTags ? (
+        <div className="space-y-1">
+          <Label>{t('tags.title')}</Label>
+          <button
+            type="button"
+            disabled={dictionariesLoading}
+            onClick={() => setTagPickerOpen(true)}
+            className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-muted px-3 py-2 text-left text-sm shadow-sm transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="flex flex-1 items-center gap-1 overflow-hidden">
+              {form.tags.length === 0 ? (
+                <span className="text-muted-foreground">{t('common.none')}</span>
+              ) : (
+                <span className="flex flex-wrap items-center gap-1 overflow-hidden">
+                  {form.tags.slice(0, 3).map((name) => {
+                    const color = tagColorByName.get(name.trim().toLowerCase()) || '#94a3b8'
+                    return (
+                      <span
+                        key={name}
+                        className="inline-flex h-5 max-w-[120px] items-center rounded-full px-1.5 text-[11px] leading-none"
+                        style={{ background: color, color: tagTextColorOn(color) }}
+                        title={name}
+                      >
+                        <span className="truncate">{name}</span>
+                      </span>
+                    )
+                  })}
+                  {form.tags.length > 3 ? (
+                    <span className="text-[11px] text-muted-foreground">+{form.tags.length - 3}</span>
+                  ) : null}
+                </span>
+              )}
+            </span>
+            <span className="text-xs text-muted-foreground opacity-60">▾</span>
+          </button>
+        </div>
+      ) : null}
+
       {compact ? (
         <div className="col-span-full flex flex-wrap items-end gap-x-3 gap-y-2">
           <div className="w-[200px] shrink-0 space-y-1">
@@ -360,7 +413,18 @@ export function TransactionForm({
           ) : null}
         </>
       )}
-    </div>
+      </div>
+      {showTags ? (
+        <TagPickerDialog
+          open={tagPickerOpen}
+          onClose={() => setTagPickerOpen(false)}
+          tags={tags}
+          selectedNames={form.tags}
+          onChange={(names) => onFormChange({ ...form, tags: names })}
+          onClearAll={() => onFormChange({ ...form, tags: [] })}
+        />
+      ) : null}
+    </>
   )
 }
 

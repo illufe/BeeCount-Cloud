@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from test_tx_read_id_resolution import _change, _iso, _make_client, _push, _register_and_token
 
 
-def _seed(client, app_hdr, device_id: str) -> str:
+def _seed(client, app_hdr, device_id: str, with_substring_account: bool = False) -> str:
     ledger_id = "lg-multi-filter"
     start = datetime(2026, 2, 1, tzinfo=timezone.utc)
     changes = [
@@ -45,6 +45,18 @@ def _seed(client, app_hdr, device_id: str) -> str:
             "categoryKind": "income", "categoryId": "category-bonus",
         }),
     ]
+    if with_substring_account:
+        changes.extend([
+            _change(ledger_id, "account", "account-cash-card", {
+                "syncId": "account-cash-card", "name": "现金卡", "type": "cash", "currency": "CNY",
+            }),
+            _change(ledger_id, "transaction", "tx-4", {
+                "syncId": "tx-4", "type": "income", "amount": 40,
+                "happenedAt": _iso(start), "note": "d", "accountName": "现金卡",
+                "accountId": "account-cash-card", "categoryName": "奖金",
+                "categoryKind": "income", "categoryId": "category-bonus",
+            }),
+        ])
     _push(client, app_hdr, device_id, ledger_id, changes)
     return ledger_id
 
@@ -101,5 +113,38 @@ def test_multi_category_sync_id_or_semantics() -> None:
         ])
         assert multi["total"] == 3
         assert multi["summary"]["income_total"] == 60.0
+    finally:
+        client.close()
+
+
+def test_account_sync_id_is_exact_for_substring_account_names() -> None:
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "multi-account-id@test.com", device_id="multi-account-id-app", client_type="app")
+        web_token = _register_and_token(client, "multi-account-id@test.com", device_id="multi-account-id-web", client_type="web")
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+        ledger_id = _seed(
+            client,
+            {"Authorization": f"Bearer {app_token}"},
+            "multi-account-id-app",
+            with_substring_account=True,
+        )
+
+        # account_sync_id 必须按 ID 精确命中,不能把“现金”当作 account_name 的子串查询。
+        exact = _fetch(client, web_hdr, [
+            ("ledger_id", ledger_id),
+            ("account_sync_id", "account-cash"),
+        ])
+        assert exact["total"] == 2
+        assert exact["summary"]["income_total"] == 40.0
+
+        # 重复参数仍是同维度 OR,可同时选择两个账户。
+        multi = _fetch(client, web_hdr, [
+            ("ledger_id", ledger_id),
+            ("account_sync_id", "account-cash"),
+            ("account_sync_id", "account-cash-card"),
+        ])
+        assert multi["total"] == 3
+        assert multi["summary"]["income_total"] == 80.0
     finally:
         client.close()

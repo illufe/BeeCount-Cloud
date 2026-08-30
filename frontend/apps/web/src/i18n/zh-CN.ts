@@ -182,6 +182,7 @@ const zhCN = {
   'accounts.liabilities': '负债',
   'accounts.composition': '资产构成',
   'accounts.empty.noData': '暂无账户数据',
+  'accounts.empty.byType': '该类型暂无账户',
   'accounts.empty.title': '还没有账户',
   'accounts.empty.desc': '从移动端添加账户后会自动同步到这里。',
   'accounts.bankcard.currentOwed': '当前欠款',
@@ -394,6 +395,8 @@ const zhCN = {
   'categories.empty.title': '还没有分类',
   'categories.empty.desc': '移动端添加分类后会自动同步到这里，支持一级/二级层级。',
   'categories.empty.byType': '该类型下暂无分类',
+  'categories.picker.selectParent': '请选择左侧分类',
+  'categories.picker.selectChildren': '选择「{name}」',
 
   // 标签页
   'tags.empty.title': '还没有标签',

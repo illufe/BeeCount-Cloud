@@ -640,6 +640,7 @@ const zhTW = {
   'accounts.liabilities': '負債',
   'accounts.composition': '資產組成',
   'accounts.empty.noData': '暫無帳戶資料',
+  'accounts.empty.byType': '該類型下暫無帳戶',
   'accounts.empty.title': '還沒有帳戶',
   'accounts.empty.desc': '從行動端新增帳戶後會自動同步到這裡。',
   'accounts.bankcard.currentOwed': '當前欠款',
@@ -832,6 +833,8 @@ const zhTW = {
   'categories.empty.title': '還沒有分類',
   'categories.empty.desc': '行動端新增分類後會自動同步到這裡，支援一級／二級層級。',
   'categories.empty.byType': '該類型下暫無分類',
+  'categories.picker.selectParent': '請選擇左側分類',
+  'categories.picker.selectChildren': '選擇「{name}」',
 
   'tags.empty.title': '還沒有標籤',
   'tags.empty.desc': '在行動端新增標籤後，這裡會以卡片方式展示。',

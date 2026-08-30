@@ -641,6 +641,7 @@ const en = {
   'accounts.liabilities': 'Liabilities',
   'accounts.composition': 'Asset composition',
   'accounts.empty.noData': 'No accounts yet',
+  'accounts.empty.byType': 'No accounts under this type',
   'accounts.empty.title': 'No accounts yet',
   'accounts.empty.desc': 'Accounts created on mobile will sync here automatically.',
   'accounts.bankcard.currentOwed': 'Current debt',
@@ -832,6 +833,8 @@ const en = {
   'categories.empty.title': 'No categories yet',
   'categories.empty.desc': 'Categories created on mobile will sync here automatically (supports two levels).',
   'categories.empty.byType': 'No categories under this type',
+  'categories.picker.selectParent': 'Select a category on the left',
+  'categories.picker.selectChildren': 'Select “{name}”',
 
   'tags.empty.title': 'No tags yet',
   'tags.empty.desc': 'Tags created on mobile will appear here as cards.',

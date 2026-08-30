@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { WorkspaceCategory } from '@beecount/api-client'
+import { useT } from '@beecount/ui'
 
 import { CategoryIcon } from './CategoryIcon'
 
@@ -62,6 +63,7 @@ export function CategorySelector({
   className,
   variant = 'grid',
 }: CategorySelectorProps) {
+  const t = useT()
   // 内部展开状态 —— 只有点击的父级允许同时展开 1 个,跟 mobile 一致。
   const [expandedParentId, setExpandedParentId] = useState<string | null>(null)
 
@@ -161,7 +163,7 @@ export function CategorySelector({
   if (topLevels.length === 0) {
     return (
       <div className={`py-8 text-center text-sm text-muted-foreground ${className || ''}`.trim()}>
-        {emptyText ?? '暂无分类'}
+        {emptyText ?? t('categories.empty.byType')}
       </div>
     )
   }
@@ -218,10 +220,10 @@ export function CategorySelector({
                 )
               })
             ) : (
-              <p className="px-2 py-2 text-[11px] text-muted-foreground">选择「{activeParent.name}」</p>
+              <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectChildren', { name: activeParent.name })}</p>
             )
           ) : (
-            <p className="px-2 py-2 text-[11px] text-muted-foreground">请选择左侧分类</p>
+            <p className="px-2 py-2 text-[11px] text-muted-foreground">{t('categories.picker.selectParent')}</p>
           )}
         </div>
       </div>

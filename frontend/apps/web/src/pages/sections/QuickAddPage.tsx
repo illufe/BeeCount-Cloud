@@ -40,6 +40,7 @@ import {
   buildTxPayload,
   canWriteTransactions,
   groupAccountPickerOptions,
+  isCustomDateFilter,
   loadRatesToBase,
   naturalMonthDateRange,
   quickAddFormAfterSave,
@@ -60,7 +61,7 @@ type QuickAddFilter = {
   txType: '' | 'expense' | 'income' | 'transfer'
   categorySyncId: string[]
   categoryName: string[]
-  accountName: string[]
+  accountSyncId: string[]
   amountMin: string
   amountMax: string
   dateFrom: string
@@ -80,7 +81,7 @@ function defaultFilter(): QuickAddFilter {
     txType: '',
     categorySyncId: [],
     categoryName: [],
-    accountName: [],
+    accountSyncId: [],
     amountMin: '',
     amountMax: '',
     dateFrom: '',
@@ -198,11 +199,10 @@ export function QuickAddPage() {
     () => groupAccountPickerOptions(t, accounts, { includeHidden: true }),
     [accounts, t],
   )
-  const filterIsCustomDate = useMemo(() => {
-    if (!appliedFilter.dateFrom || !appliedFilter.dateTo) return false
-    const range = naturalMonthDateRange(selectedMonth)
-    return !range || range.dateFrom !== appliedFilter.dateFrom || range.dateTo !== appliedFilter.dateTo
-  }, [appliedFilter.dateFrom, appliedFilter.dateTo, selectedMonth])
+  const filterIsCustomDate = useMemo(
+    () => isCustomDateFilter(appliedFilter, selectedMonth),
+    [appliedFilter, selectedMonth],
+  )
 
   const loadTransactions = useCallback(async () => {
     const requestId = ++transactionsRequestRef.current
@@ -220,7 +220,7 @@ export function QuickAddPage() {
         ledgerId: activeLedgerId,
         q: appliedFilter.q || undefined,
         txType: appliedFilter.txType || undefined,
-        accountName: appliedFilter.accountName.length ? appliedFilter.accountName : undefined,
+        accountSyncId: appliedFilter.accountSyncId.length ? appliedFilter.accountSyncId : undefined,
         categorySyncId: appliedFilter.categorySyncId.length ? appliedFilter.categorySyncId : undefined,
         amountMin: appliedFilter.amountMin && Number.isFinite(min) ? min : undefined,
         amountMax: appliedFilter.amountMax && Number.isFinite(max) ? max : undefined,
@@ -480,6 +480,7 @@ export function QuickAddPage() {
                 canWrite={Boolean(activeWritableLedger) && !saving}
                 dictionariesLoading={accounts.length === 0 && categories.length === 0 && tags.length === 0}
                 compact
+                showTags={false}
                 onFormChange={setForm}
                 onSave={onSave}
                 onReset={() => setForm(txDefaults())}
@@ -531,10 +532,10 @@ export function QuickAddPage() {
                 <AccountMultiSelect
                   placeholder={t('shell.filter.all')}
                   groups={filterAccountGroups}
-                  selected={filter.accountName}
-                  onChange={(values) => setFilter((current) => ({ ...current, accountName: values }))}
+                  selected={filter.accountSyncId}
+                  onChange={(values) => setFilter((current) => ({ ...current, accountSyncId: values }))}
                   allowClear
-                  onClear={() => setFilter((current) => ({ ...current, accountName: [] }))}
+                  onClear={() => setFilter((current) => ({ ...current, accountSyncId: [] }))}
                   triggerClassName="w-[170px]"
                   title={t('shell.accountFilter')}
                 />
