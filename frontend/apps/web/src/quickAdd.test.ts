@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { fetchWorkspaceTransactions } from '@beecount/api-client'
 import {
   isCustomDateFilter,
   naturalMonthDateRange,
@@ -117,5 +118,21 @@ describe('quick add helpers', () => {
     expect(transactionTableAmount({ amount: 100, native_amount: 86.4, exclude_from_stats: false })).toBe(86.4)
     expect(transactionTableAmount({ amount: 100, native_amount: 86.4, exclude_from_stats: true })).toBe(0)
     expect(transactionTableAmount({ amount: 100, native_amount: null, exclude_from_stats: false })).toBe(100)
+  })
+
+  it('serializes the reconcile balance query flag', async () => {
+    const fetchMock = vi.fn(async (..._args: [RequestInfo | URL, RequestInit?]) => new Response(JSON.stringify({
+      items: [], total: 0, limit: 20, offset: 0,
+      summary: { income_total: 0, expense_total: 0, balance: 0 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await fetchWorkspaceTransactions('token', { ledgerId: 'ledger', includeAccountBalance: true })
+      await fetchWorkspaceTransactions('token', { ledgerId: 'ledger', includeAccountBalance: false })
+      expect(String(fetchMock.mock.calls[0][0])).toContain('include_account_balance=true')
+      expect(String(fetchMock.mock.calls[1][0])).toContain('include_account_balance=false')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

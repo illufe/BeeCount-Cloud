@@ -34,6 +34,7 @@ export type TransactionTableProps = {
   currentUserId?: string | null
   /** 跨账本场景显示账本名 chip。透传到行内。 */
   showLedger?: boolean
+  showAccountBalance?: boolean
   /** 备注显示方式,默认 'category'。 */
   noteDisplayMode?: NoteDisplayMode
   emptyTitle?: string
@@ -82,6 +83,7 @@ export function TransactionTable({
   showCreator = false,
   currentUserId,
   showLedger = false,
+  showAccountBalance = false,
   noteDisplayMode = 'category',
   emptyTitle,
   emptyDescription,
@@ -125,7 +127,10 @@ export function TransactionTable({
     }
     for (const group of map.values()) {
       group.rows.sort(
-        (a, b) => new Date(b.happened_at).getTime() - new Date(a.happened_at).getTime()
+        (a, b) =>
+          new Date(b.happened_at).getTime() - new Date(a.happened_at).getTime()
+          || b.tx_index - a.tx_index
+          || b.id.localeCompare(a.id)
       )
     }
     return [...map.values()].sort((a, b) => b.date.getTime() - a.date.getTime())
@@ -205,6 +210,7 @@ export function TransactionTable({
                       showCreator={showCreator}
                       currentUserId={currentUserId}
                       showLedger={showLedger}
+                      showAccountBalance={showAccountBalance}
                       noteDisplayMode={noteDisplayMode}
                       isInteractive={isInteractive}
                     />
@@ -242,6 +248,7 @@ type TableRowProps = {
   showCreator: boolean
   currentUserId?: string | null
   showLedger: boolean
+  showAccountBalance: boolean
   noteDisplayMode: NoteDisplayMode
   isInteractive: boolean
 }
@@ -262,6 +269,7 @@ function TransactionTableRow({
   showCreator,
   currentUserId,
   showLedger,
+  showAccountBalance,
   noteDisplayMode,
   isInteractive,
 }: TableRowProps) {
@@ -406,6 +414,25 @@ function TransactionTableRow({
             >
               ≈{formatAmountFixed(row.native_amount as number)}
             </span>
+          ) : null}
+          {showAccountBalance && row.tx_type !== 'transfer' && row.account_balance_after != null ? (
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+              {t('transactions.balance')} {formatAmountFixed(row.account_balance_after)}
+            </span>
+          ) : null}
+          {showAccountBalance && row.tx_type === 'transfer' ? (
+            <>
+              {row.from_account_balance_after != null ? (
+                <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                  {t('transactions.transferOutBalance')} {formatAmountFixed(row.from_account_balance_after)}
+                </span>
+              ) : null}
+              {row.to_account_balance_after != null ? (
+                <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                  {t('transactions.transferInBalance')} {formatAmountFixed(row.to_account_balance_after)}
+                </span>
+              ) : null}
+            </>
           ) : null}
         </div>
       </td>

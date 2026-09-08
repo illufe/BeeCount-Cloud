@@ -153,6 +153,7 @@ export function QuickAddPage() {
   const [rows, setRows] = useState<WorkspaceTransaction[]>([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ income_total: 0, expense_total: 0, balance: 0 })
+  const [showReconcile, setShowReconcile] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT)
   const [filter, setFilter] = useState<QuickAddFilter>(initialFilter)
@@ -228,6 +229,7 @@ export function QuickAddPage() {
         amountMax: appliedFilter.amountMax && Number.isFinite(max) ? max : undefined,
         dateFrom: dateToIso(appliedFilter.dateFrom),
         dateTo: dateToIso(appliedFilter.dateTo, true),
+        includeAccountBalance: showReconcile,
         limit: pageSize,
         offset: (page - 1) * pageSize,
       })
@@ -241,7 +243,7 @@ export function QuickAddPage() {
     } finally {
       if (requestId === transactionsRequestRef.current) setLoading(false)
     }
-  }, [activeLedgerId, appliedFilter, page, pageSize, token, t, toast])
+  }, [activeLedgerId, appliedFilter, page, pageSize, showReconcile, token, t, toast])
 
   const loadYear = useCallback(async () => {
     const requestId = ++yearRequestRef.current
@@ -560,6 +562,15 @@ export function QuickAddPage() {
                 <Input type="date" className="h-9 w-[126px]" value={filter.dateTo} onClick={openNativePicker} onChange={(event) => updateFilter('dateTo', event.target.value)} />
               </div>
               <Input placeholder={t('shell.placeholder.keyword')} className="h-9 w-[150px] min-w-[120px]" value={filter.q} onChange={(event) => updateFilter('q', event.target.value)} />
+              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={showReconcile}
+                  onChange={(event) => setShowReconcile(event.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                {t('quickAdd.reconcile')}
+              </label>
               <Button size="sm" onClick={applyFilter}>{t('shell.filter.apply')}</Button>
               <Button size="sm" variant="outline" onClick={resetFilter}>{t('shell.filter.reset')}</Button>
               {filterIsCustomDate ? <span className="text-xs text-muted-foreground">{t('quickAdd.customDate')}</span> : null}
@@ -584,6 +595,7 @@ export function QuickAddPage() {
                 onCopy={onCopy}
                 onDelete={onDelete}
                 loading={loading}
+                showAccountBalance={showReconcile}
                 onSelect={(row) => dispatchOpenDetailTx(row as WorkspaceTransaction)}
               />
               <Pagination
