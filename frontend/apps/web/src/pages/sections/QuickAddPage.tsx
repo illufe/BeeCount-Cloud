@@ -196,9 +196,9 @@ export function QuickAddPage() {
 
   // 筛选栏分类:随手记式两级目录(左右两栏) + 多选,见 CategoryMultiSelect。
   // 筛选栏账户:随手记式两级目录(左=账户类型,右=账户) + 多选,见 AccountMultiSelect。
-  // 含隐藏账户以便筛到历史交易。
+  // 筛选栏只展示可见账户，历史交易仍可通过其它条件查询。
   const filterAccountGroups = useMemo(
-    () => groupAccountPickerOptions(t, accounts, { includeHidden: true }),
+    () => groupAccountPickerOptions(t, accounts),
     [accounts, t],
   )
   const filterIsCustomDate = useMemo(
