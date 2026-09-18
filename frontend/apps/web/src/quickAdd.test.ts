@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { fetchWorkspaceTransactions } from '@beecount/api-client'
+import { authedGet, configureHttp, fetchWorkspaceTransactions } from '@beecount/api-client'
 import {
   isCustomDateFilter,
   naturalMonthDateRange,
@@ -147,6 +147,21 @@ describe('quick add helpers', () => {
       await fetchWorkspaceTransactions('token', { ledgerId: 'ledger', signal: controller.signal })
       expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
     } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rethrows an abort during token refresh', async () => {
+    const abortError = Object.assign(new Error('aborted'), { name: 'AbortError' })
+    const logout = vi.fn()
+    const fetchMock = vi.fn(async (..._args: [RequestInfo | URL, RequestInit?]) => new Response('', { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    configureHttp({ refreshToken: async () => { throw abortError }, onLogout: logout })
+    try {
+      await expect(authedGet('/read/workspace/transactions', 'token')).rejects.toBe(abortError)
+      expect(logout).not.toHaveBeenCalled()
+    } finally {
+      configureHttp({ refreshToken: null, onLogout: null })
       vi.unstubAllGlobals()
     }
   })

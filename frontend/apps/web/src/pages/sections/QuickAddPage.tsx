@@ -301,7 +301,10 @@ export function QuickAddPage() {
     setWriteLedgerId(activeWritableLedger?.ledger_id || '')
   }, [activeWritableLedger?.ledger_id])
 
-  useEffect(() => { void loadTransactions() }, [loadTransactions])
+  useEffect(() => {
+    void loadTransactions()
+    return () => { transactionsAbortRef.current?.abort() }
+  }, [loadTransactions])
   useEffect(() => { void loadYear() }, [loadYear])
   useSyncRefresh(() => {
     void loadTransactions()

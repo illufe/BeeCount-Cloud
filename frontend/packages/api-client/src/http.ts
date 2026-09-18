@@ -156,7 +156,8 @@ async function authedFetch(
   try {
     const fresh = await doRefresh()
     return await makeRequest(fresh, signal)
-  } catch (_) {
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') throw error
     logoutFn?.()
     return res
   }
