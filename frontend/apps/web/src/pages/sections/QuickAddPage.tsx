@@ -165,6 +165,7 @@ export function QuickAddPage() {
   const [saving, setSaving] = useState(false)
   const transactionsRequestRef = useRef(0)
   const transactionsAbortRef = useRef<AbortController | null>(null)
+  const transactionsWriteRefreshRef = useRef<Promise<void> | null>(null)
   const yearRequestRef = useRef(0)
 
   const writableLedgers = useMemo(
@@ -208,46 +209,59 @@ export function QuickAddPage() {
     [appliedFilter, selectedMonth],
   )
 
-  const loadTransactions = useCallback(async () => {
-    const requestId = ++transactionsRequestRef.current
-    transactionsAbortRef.current?.abort()
-    const controller = new AbortController()
-    transactionsAbortRef.current = controller
-    if (!token || !activeLedgerId) {
-      setRows([])
-      setTotal(0)
-      setSummary({ income_total: 0, expense_total: 0, balance: 0 })
-      return
+  const loadTransactions = useCallback((writeRefresh = false): Promise<void> => {
+    if (!writeRefresh && transactionsWriteRefreshRef.current) {
+      return transactionsWriteRefreshRef.current
     }
-    setLoading(true)
-    try {
-      const min = Number(appliedFilter.amountMin)
-      const max = Number(appliedFilter.amountMax)
-      const result = await fetchWorkspaceTransactions(token, {
-        ledgerId: activeLedgerId,
-        q: appliedFilter.q || undefined,
-        txType: appliedFilter.txType || undefined,
-        accountSyncId: appliedFilter.accountSyncId.length ? appliedFilter.accountSyncId : undefined,
-        categorySyncId: appliedFilter.categorySyncId.length ? appliedFilter.categorySyncId : undefined,
-        amountMin: appliedFilter.amountMin && Number.isFinite(min) ? min : undefined,
-        amountMax: appliedFilter.amountMax && Number.isFinite(max) ? max : undefined,
-        dateFrom: dateToIso(appliedFilter.dateFrom),
-        dateTo: dateToIso(appliedFilter.dateTo, true),
-        includeAccountBalance: showReconcile,
-        limit: pageSize,
-        offset: (page - 1) * pageSize,
-        signal: controller.signal,
-      })
-      if (requestId !== transactionsRequestRef.current) return
-      setRows(result.items)
-      setTotal(result.total)
-      setSummary(result.summary)
-    } catch (error) {
-      if (requestId !== transactionsRequestRef.current || (error as { name?: string })?.name === 'AbortError') return
-      toast.error(localizeError(error, t), t('notice.failed'))
-    } finally {
-      if (requestId === transactionsRequestRef.current) setLoading(false)
+    const request = (async () => {
+      const requestId = ++transactionsRequestRef.current
+      transactionsAbortRef.current?.abort()
+      const controller = new AbortController()
+      transactionsAbortRef.current = controller
+      if (!token || !activeLedgerId) {
+        setRows([])
+        setTotal(0)
+        setSummary({ income_total: 0, expense_total: 0, balance: 0 })
+        return
+      }
+      setLoading(true)
+      try {
+        const min = Number(appliedFilter.amountMin)
+        const max = Number(appliedFilter.amountMax)
+        const result = await fetchWorkspaceTransactions(token, {
+          ledgerId: activeLedgerId,
+          q: appliedFilter.q || undefined,
+          txType: appliedFilter.txType || undefined,
+          accountSyncId: appliedFilter.accountSyncId.length ? appliedFilter.accountSyncId : undefined,
+          categorySyncId: appliedFilter.categorySyncId.length ? appliedFilter.categorySyncId : undefined,
+          amountMin: appliedFilter.amountMin && Number.isFinite(min) ? min : undefined,
+          amountMax: appliedFilter.amountMax && Number.isFinite(max) ? max : undefined,
+          dateFrom: dateToIso(appliedFilter.dateFrom),
+          dateTo: dateToIso(appliedFilter.dateTo, true),
+          includeAccountBalance: showReconcile,
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
+          signal: controller.signal,
+        })
+        if (requestId !== transactionsRequestRef.current) return
+        setRows(result.items)
+        setTotal(result.total)
+        setSummary(result.summary)
+      } catch (error) {
+        if (requestId !== transactionsRequestRef.current || (error as { name?: string })?.name === 'AbortError') return
+        toast.error(localizeError(error, t), t('notice.failed'))
+      } finally {
+        if (requestId === transactionsRequestRef.current) setLoading(false)
+      }
+    })()
+    if (writeRefresh) {
+      transactionsWriteRefreshRef.current = request
+      const clearWriteRefresh = () => {
+        if (transactionsWriteRefreshRef.current === request) transactionsWriteRefreshRef.current = null
+      }
+      void request.then(clearWriteRefresh, clearWriteRefresh)
     }
+    return request
   }, [activeLedgerId, appliedFilter, page, pageSize, showReconcile, token, t, toast])
 
   const loadYear = useCallback(async () => {
@@ -392,7 +406,7 @@ export function QuickAddPage() {
         : createTransaction(token, writeLedgerId, base, payload))
       const wasEditing = Boolean(form.editingId)
       setForm(quickAddFormAfterSave(form))
-      await Promise.all([loadTransactions(), loadYear()])
+      await Promise.all([loadTransactions(true), loadYear()])
       toast.success(wasEditing ? t('notice.txUpdated') : t('notice.txCreated'), t('notice.success'))
       return true
     } catch (error) {
@@ -424,7 +438,7 @@ export function QuickAddPage() {
     if (!window.confirm(t('dialog.delete.confirm'))) return
     try {
       await retryOnConflict(row.ledger_id, (base) => deleteTransaction(token, row.ledger_id!, row.id, base))
-      await loadTransactions()
+      await loadTransactions(true)
       toast.success(t('notice.txDeleted'), t('notice.success'))
     } catch (error) {
       toast.error(localizeError(error, t), t('notice.failed'))
