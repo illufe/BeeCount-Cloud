@@ -164,6 +164,7 @@ export function QuickAddPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const transactionsRequestRef = useRef(0)
+  const transactionsAbortRef = useRef<AbortController | null>(null)
   const yearRequestRef = useRef(0)
 
   const writableLedgers = useMemo(
@@ -209,6 +210,9 @@ export function QuickAddPage() {
 
   const loadTransactions = useCallback(async () => {
     const requestId = ++transactionsRequestRef.current
+    transactionsAbortRef.current?.abort()
+    const controller = new AbortController()
+    transactionsAbortRef.current = controller
     if (!token || !activeLedgerId) {
       setRows([])
       setTotal(0)
@@ -232,13 +236,14 @@ export function QuickAddPage() {
         includeAccountBalance: showReconcile,
         limit: pageSize,
         offset: (page - 1) * pageSize,
+        signal: controller.signal,
       })
       if (requestId !== transactionsRequestRef.current) return
       setRows(result.items)
       setTotal(result.total)
       setSummary(result.summary)
     } catch (error) {
-      if (requestId !== transactionsRequestRef.current) return
+      if (requestId !== transactionsRequestRef.current || (error as { name?: string })?.name === 'AbortError') return
       toast.error(localizeError(error, t), t('notice.failed'))
     } finally {
       if (requestId === transactionsRequestRef.current) setLoading(false)

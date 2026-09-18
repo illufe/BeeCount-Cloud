@@ -135,4 +135,19 @@ describe('quick add helpers', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('passes an abort signal through transaction requests', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async (..._args: [RequestInfo | URL, RequestInit?]) => new Response(JSON.stringify({
+      items: [], total: 0, limit: 20, offset: 0,
+      summary: { income_total: 0, expense_total: 0, balance: 0 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await fetchWorkspaceTransactions('token', { ledgerId: 'ledger', signal: controller.signal })
+      expect(fetchMock.mock.calls[0][1]?.signal).toBe(controller.signal)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

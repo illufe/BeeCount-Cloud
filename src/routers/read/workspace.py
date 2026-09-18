@@ -88,17 +88,54 @@ class NetWorthHistoryOut(BaseModel):
 def _workspace_transaction_balances(
     db: Session,
     *,
-    ledger_internal_ids: list[str],
+    page_rows: list[ReadTxProjection],
     ledger_owner_by_internal_id: dict[str, str],
 ) -> dict[tuple[str, str], tuple[float | None, float | None, float | None]]:
-    """Calculate post-transaction account balances for the visible ledgers."""
-    owner_ids = set(ledger_owner_by_internal_id.values())
+    """Calculate complete-history balances for the current transaction page."""
+    if not page_rows:
+        return {}
+
+    page_tx_keys = {(row.ledger_id, row.sync_id) for row in page_rows}
+    account_ids_by_ledger: dict[str, set[str]] = {}
+    for row in page_rows:
+        account_ids = account_ids_by_ledger.setdefault(row.ledger_id, set())
+        account_ids.update(
+            account_id
+            for account_id in (
+                row.account_sync_id,
+                row.from_account_sync_id,
+                row.to_account_sync_id,
+            )
+            if account_id
+        )
+    if not account_ids_by_ledger:
+        return {}
+
+    account_ids = set().union(*account_ids_by_ledger.values())
+    if not account_ids:
+        return {}
+    account_keys = {
+        (ledger_id, account_id)
+        for ledger_id, account_ids in account_ids_by_ledger.items()
+        for account_id in account_ids
+    }
+    owner_ids = {
+        ledger_owner_by_internal_id[ledger_id]
+        for ledger_id in account_ids_by_ledger
+    }
     initial_by_owner_account = {
         (row.user_id, row.sync_id): float(row.initial_balance or 0.0)
-        for row in db.scalars(
-            select(UserAccountProjection).where(UserAccountProjection.user_id.in_(owner_ids))
+        for row in db.execute(
+            select(
+                UserAccountProjection.user_id,
+                UserAccountProjection.sync_id,
+                UserAccountProjection.initial_balance,
+            ).where(
+                UserAccountProjection.user_id.in_(owner_ids),
+                UserAccountProjection.sync_id.in_(account_ids),
+            )
         ).all()
-    } if owner_ids else {}
+    }
 
     running: dict[tuple[str, str], float] = {}
     result: dict[tuple[str, str], tuple[float | None, float | None, float | None]] = {}
@@ -110,9 +147,30 @@ def _workspace_transaction_balances(
             running[key] = initial_by_owner_account.get((owner_id, account_id), 0.0)
         return key
 
-    rows = db.scalars(
-        select(ReadTxProjection)
-        .where(ReadTxProjection.ledger_id.in_(ledger_internal_ids))
+    history_filters = [
+        and_(
+            ReadTxProjection.ledger_id == ledger_id,
+            or_(
+                ReadTxProjection.account_sync_id.in_(account_ids),
+                ReadTxProjection.from_account_sync_id.in_(account_ids),
+                ReadTxProjection.to_account_sync_id.in_(account_ids),
+            ),
+        )
+        for ledger_id, account_ids in account_ids_by_ledger.items()
+    ]
+    rows = db.execute(
+        select(
+            ReadTxProjection.ledger_id,
+            ReadTxProjection.sync_id,
+            ReadTxProjection.tx_type,
+            ReadTxProjection.amount,
+            ReadTxProjection.happened_at,
+            ReadTxProjection.tx_index,
+            ReadTxProjection.account_sync_id,
+            ReadTxProjection.from_account_sync_id,
+            ReadTxProjection.to_account_sync_id,
+        )
+        .where(or_(*history_filters))
         .order_by(
             ReadTxProjection.happened_at.asc(),
             ReadTxProjection.tx_index.asc(),
@@ -125,26 +183,43 @@ def _workspace_transaction_balances(
         from_after: float | None = None
         to_after: float | None = None
 
-        if row.tx_type in ("income", "expense", "adjustment") and row.account_sync_id:
+        if (
+            row.tx_type in ("income", "expense", "adjustment")
+            and row.account_sync_id
+            and (row.ledger_id, row.account_sync_id) in account_keys
+        ):
             account_key = ensure_balance(row.ledger_id, row.account_sync_id)
             running[account_key] += amount if row.tx_type in ("income", "adjustment") else -amount
             account_after = running[account_key]
         elif row.tx_type == "transfer":
             delta_by_key: dict[tuple[str, str], float] = {}
-            if row.from_account_sync_id:
+            if (
+                row.from_account_sync_id
+                and (row.ledger_id, row.from_account_sync_id) in account_keys
+            ):
                 from_key = ensure_balance(row.ledger_id, row.from_account_sync_id)
                 delta_by_key[from_key] = delta_by_key.get(from_key, 0.0) - amount
-            if row.to_account_sync_id:
+            if (
+                row.to_account_sync_id
+                and (row.ledger_id, row.to_account_sync_id) in account_keys
+            ):
                 to_key = ensure_balance(row.ledger_id, row.to_account_sync_id)
                 delta_by_key[to_key] = delta_by_key.get(to_key, 0.0) + amount
             for key, delta in delta_by_key.items():
                 running[key] += delta
-            if row.from_account_sync_id:
+            if (
+                row.from_account_sync_id
+                and (row.ledger_id, row.from_account_sync_id) in account_keys
+            ):
                 from_after = running[ensure_balance(row.ledger_id, row.from_account_sync_id)]
-            if row.to_account_sync_id:
+            if (
+                row.to_account_sync_id
+                and (row.ledger_id, row.to_account_sync_id) in account_keys
+            ):
                 to_after = running[ensure_balance(row.ledger_id, row.to_account_sync_id)]
 
-        result[(row.ledger_id, row.sync_id)] = (account_after, from_after, to_after)
+        if (row.ledger_id, row.sync_id) in page_tx_keys:
+            result[(row.ledger_id, row.sync_id)] = (account_after, from_after, to_after)
     return result
 
 
@@ -191,14 +266,6 @@ def list_workspace_transactions(
         change_id_by_ledger[l.id] = _get_latest_change_id(db, ledger_id=l.id)
 
     owner_map = _owner_map_for_ledgers(db, ledgers)
-    balance_after_by_tx = (
-        _workspace_transaction_balances(
-            db,
-            ledger_internal_ids=ledger_internal_ids,
-            ledger_owner_by_internal_id=ledger_owner_by_internal_id,
-        )
-        if include_account_balance else {}
-    )
 
     # 组装 projection query:filter + sort + paginate 全交给 SQL + index
     query = select(ReadTxProjection).where(ReadTxProjection.ledger_id.in_(ledger_internal_ids))
@@ -339,6 +406,14 @@ def list_workspace_transactions(
         ReadTxProjection.sync_id.desc(),
     ).offset(offset).limit(limit)
     rows = db.scalars(query).all()
+    balance_after_by_tx = (
+        _workspace_transaction_balances(
+            db,
+            page_rows=rows,
+            ledger_owner_by_internal_id=ledger_owner_by_internal_id,
+        )
+        if include_account_balance else {}
+    )
 
     # §7 共享账本:per-tx 创建者/编辑者头像 + name 用。从 projection 收集
     # 所有出现过的 user_id,一次查 User + UserProfile,O(N) → O(distinct users)。

@@ -114,5 +114,20 @@ def test_workspace_transaction_balance_is_ordered_unfiltered_and_amount_based() 
         assert filtered_page.status_code == 200, filtered_page.text
         assert filtered_page.json()["items"][0]["id"] == "tx-excluded"
         assert filtered_page.json()["items"][0]["account_balance_after"] == 115.0
+
+        paged_page = client.get(
+            "/api/v1/read/workspace/transactions",
+            params={
+                "ledger_id": ledger_id,
+                "include_account_balance": True,
+                "limit": 1,
+                "offset": 0,
+            },
+            headers=web_hdr,
+        )
+        assert paged_page.status_code == 200, paged_page.text
+        paged_items = paged_page.json()["items"]
+        assert [item["id"] for item in paged_items] == ["tx-same-z"]
+        assert paged_items[0]["account_balance_after"] == 81.0
     finally:
         client.close()

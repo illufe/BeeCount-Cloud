@@ -168,6 +168,7 @@ export async function fetchWorkspaceTransactions(
     includeAccountBalance?: boolean
     limit?: number
     offset?: number
+    signal?: AbortSignal
   }
 ): Promise<WorkspaceTransactionPage> {
   const query = new URLSearchParams()
@@ -192,7 +193,8 @@ export async function fetchWorkspaceTransactions(
   const suffix = query.toString() ? `?${query.toString()}` : ''
   const response = await authedGet<WorkspaceTransactionPage | WorkspaceTransaction[]>(
     `/read/workspace/transactions${suffix}`,
-    token
+    token,
+    options?.signal,
   )
 
   // Backward compatibility: older backend returned array directly.

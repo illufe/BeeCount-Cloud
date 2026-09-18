@@ -128,15 +128,19 @@ async function doRefresh(): Promise<string> {
   return refreshInFlight
 }
 
-type FetchMaker = (token: string) => Promise<Response>
+type FetchMaker = (token: string, signal?: AbortSignal) => Promise<Response>
 
 /**
  * Perform an authed fetch with transparent single-flight token refresh on 401.
  * Callers provide a factory that builds the request given the current token
  * string so we can replay the call with a refreshed token.
  */
-async function authedFetch(makeRequest: FetchMaker, token: string): Promise<Response> {
-  const res = await makeRequest(token)
+async function authedFetch(
+  makeRequest: FetchMaker,
+  token: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const res = await makeRequest(token, signal)
   if (res.status !== 401) return res
   // Drain the body so we don't leak the connection on node/fetch implementations.
   try {
@@ -151,23 +155,25 @@ async function authedFetch(makeRequest: FetchMaker, token: string): Promise<Resp
   }
   try {
     const fresh = await doRefresh()
-    return await makeRequest(fresh)
+    return await makeRequest(fresh, signal)
   } catch (_) {
     logoutFn?.()
     return res
   }
 }
 
-export async function authedGet<T>(path: string, token: string): Promise<T> {
+export async function authedGet<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
   const res = await authedFetch(
-    (tok) =>
+    (tok, requestSignal) =>
       fetch(`${API_BASE}${path}`, {
         headers: authHeaders(tok),
+        signal: requestSignal,
         // 数据是事件日志 + 最新快照驱动的，任何缓存命中都会让 refresh-after-write
         // 看到上一份数据。显式拒绝，避免浏览器/中间 CDN 给同路径返回旧响应。
         cache: 'no-store'
       }),
-    token
+    token,
+    signal,
   )
   return parseResponse<T>(res)
 }
