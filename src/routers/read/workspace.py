@@ -84,6 +84,70 @@ class NetWorthHistoryOut(BaseModel):
     series: list[NetWorthHistorySeriesItemOut]
     multi_currency: bool
 
+
+def _workspace_transaction_balances(
+    db: Session,
+    *,
+    ledger_internal_ids: list[str],
+    ledger_owner_by_internal_id: dict[str, str],
+) -> dict[tuple[str, str], tuple[float | None, float | None, float | None]]:
+    """Calculate post-transaction account balances for the visible ledgers."""
+    owner_ids = set(ledger_owner_by_internal_id.values())
+    initial_by_owner_account = {
+        (row.user_id, row.sync_id): float(row.initial_balance or 0.0)
+        for row in db.scalars(
+            select(UserAccountProjection).where(UserAccountProjection.user_id.in_(owner_ids))
+        ).all()
+    } if owner_ids else {}
+
+    running: dict[tuple[str, str], float] = {}
+    result: dict[tuple[str, str], tuple[float | None, float | None, float | None]] = {}
+
+    def ensure_balance(ledger_id: str, account_id: str) -> tuple[str, str]:
+        key = (ledger_id, account_id)
+        if key not in running:
+            owner_id = ledger_owner_by_internal_id[ledger_id]
+            running[key] = initial_by_owner_account.get((owner_id, account_id), 0.0)
+        return key
+
+    rows = db.scalars(
+        select(ReadTxProjection)
+        .where(ReadTxProjection.ledger_id.in_(ledger_internal_ids))
+        .order_by(
+            ReadTxProjection.happened_at.asc(),
+            ReadTxProjection.tx_index.asc(),
+            ReadTxProjection.sync_id.asc(),
+        )
+    ).all()
+    for row in rows:
+        amount = float(row.amount or 0.0)
+        account_after: float | None = None
+        from_after: float | None = None
+        to_after: float | None = None
+
+        if row.tx_type in ("income", "expense", "adjustment") and row.account_sync_id:
+            account_key = ensure_balance(row.ledger_id, row.account_sync_id)
+            running[account_key] += amount if row.tx_type in ("income", "adjustment") else -amount
+            account_after = running[account_key]
+        elif row.tx_type == "transfer":
+            delta_by_key: dict[tuple[str, str], float] = {}
+            if row.from_account_sync_id:
+                from_key = ensure_balance(row.ledger_id, row.from_account_sync_id)
+                delta_by_key[from_key] = delta_by_key.get(from_key, 0.0) - amount
+            if row.to_account_sync_id:
+                to_key = ensure_balance(row.ledger_id, row.to_account_sync_id)
+                delta_by_key[to_key] = delta_by_key.get(to_key, 0.0) + amount
+            for key, delta in delta_by_key.items():
+                running[key] += delta
+            if row.from_account_sync_id:
+                from_after = running[ensure_balance(row.ledger_id, row.from_account_sync_id)]
+            if row.to_account_sync_id:
+                to_after = running[ensure_balance(row.ledger_id, row.to_account_sync_id)]
+
+        result[(row.ledger_id, row.sync_id)] = (account_after, from_after, to_after)
+    return result
+
+
 @router.get("/workspace/transactions", response_model=WorkspaceTransactionPageOut)
 def list_workspace_transactions(
     ledger_id: str | None = Query(default=None),
@@ -99,6 +163,7 @@ def list_workspace_transactions(
     amount_max: float | None = Query(default=None, description="金额上限(含)"),
     date_from: datetime | None = Query(default=None, description="happened_at >= date_from"),
     date_to: datetime | None = Query(default=None, description="happened_at < date_to(独占,前端传当天 23:59:59 即可包含整天)"),
+    include_account_balance: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
     _scopes: set[str] = Depends(_READ_SCOPE_DEP),
@@ -119,12 +184,21 @@ def list_workspace_transactions(
     ledger_meta: dict[str, tuple[str, str]] = {
         l.id: (l.external_id, _resolve_ledger_name(db, ledger=l)) for l in ledgers
     }
+    ledger_owner_by_internal_id = {l.id: l.user_id for l in ledgers}
     # 各账本的最新 change_id —— 客户端比对用
     change_id_by_ledger: dict[str, int] = {}
     for l in ledgers:
         change_id_by_ledger[l.id] = _get_latest_change_id(db, ledger_id=l.id)
 
     owner_map = _owner_map_for_ledgers(db, ledgers)
+    balance_after_by_tx = (
+        _workspace_transaction_balances(
+            db,
+            ledger_internal_ids=ledger_internal_ids,
+            ledger_owner_by_internal_id=ledger_owner_by_internal_id,
+        )
+        if include_account_balance else {}
+    )
 
     # 组装 projection query:filter + sort + paginate 全交给 SQL + index
     query = select(ReadTxProjection).where(ReadTxProjection.ledger_id.in_(ledger_internal_ids))
@@ -262,6 +336,7 @@ def list_workspace_transactions(
     query = query.order_by(
         ReadTxProjection.happened_at.desc(),
         ReadTxProjection.tx_index.desc(),
+        ReadTxProjection.sync_id.desc(),
     ).offset(offset).limit(limit)
     rows = db.scalars(query).all()
 
@@ -290,6 +365,9 @@ def list_workspace_transactions(
         led_ext_id, led_name = ledger_meta.get(row.ledger_id, ("", ""))
         change_id = change_id_by_ledger.get(row.ledger_id, 0)
         owner_info = owner_map.get(led_ext_id) or (None, None)
+        account_balance_after, from_account_balance_after, to_account_balance_after = (
+            balance_after_by_tx.get((row.ledger_id, row.sync_id), (None, None, None))
+        )
 
         tag_ids: list[str] = []
         if row.tag_sync_ids_json:
@@ -340,6 +418,9 @@ def list_workspace_transactions(
                 exclude_from_budget=bool(row.exclude_from_budget),
                 currency_code=row.currency_code,
                 native_amount=row.native_amount,
+                account_balance_after=account_balance_after,
+                from_account_balance_after=from_account_balance_after,
+                to_account_balance_after=to_account_balance_after,
                 last_change_id=change_id,
                 ledger_id=led_ext_id,
                 ledger_name=led_name,
