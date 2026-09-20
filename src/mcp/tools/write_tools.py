@@ -283,6 +283,7 @@ async def update_transaction(
         ):
             raise ValueError("native_amount must be a finite positive number")
     category_sync_id: str | None = None
+    account_sync_id: str | None = None
     with SessionLocal() as db:
         existing = db.scalar(
             select(ReadTxProjection).where(
@@ -306,7 +307,7 @@ async def update_transaction(
                 db, user.id, category, effective_tx_type
             )
         if account:
-            _lookup_account_sync_id(db, user.id, account)
+            account_sync_id = _lookup_account_sync_id(db, user.id, account)
 
     patch: dict[str, Any] = {"base_change_id": 0}
     if amount is not None:
@@ -334,8 +335,12 @@ async def update_transaction(
     if account is not None:
         if effective_tx_type == "transfer":
             patch["from_account_name"] = account
+            if account_sync_id:
+                patch["from_account_id"] = account_sync_id
         else:
             patch["account_name"] = account
+            if account_sync_id:
+                patch["account_id"] = account_sync_id
     if tags is not None:
         patch["tags"] = list(tags)
     if normalized_currency is not None:

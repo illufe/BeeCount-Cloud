@@ -89,7 +89,6 @@ def synthetic(monkeypatch):
     monkeypatch.setattr(
         write_tools, "_resolve_write_ledger", lambda *_args, **_kwargs: (ledger, None)
     )
-    monkeypatch.setattr(write_tools, "_lookup_account_sync_id", lambda *_args: None)
     monkeypatch.setattr(write_tools, "_account_currency", lambda *_args: "CNY")
     monkeypatch.setattr(
         write_tools, "_is_tag_missing_in_ledger", lambda *_args, **_kwargs: False
@@ -307,6 +306,80 @@ def test_update_transaction_forwards_category_id(synthetic) -> None:
     )
     assert "categoryId" not in cleared["items"][0]
     assert "categoryName" not in cleared["items"][0]
+
+
+def test_update_transfer_persists_source_id_and_preserves_destination(synthetic) -> None:
+    with synthetic.session_factory() as db:
+        db.add(ReadTxProjection(
+            ledger_id=synthetic.ledger.id,
+            sync_id="tx-transfer",
+            user_id=synthetic.user.id,
+            tx_type="transfer",
+            amount=10,
+            happened_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            from_account_sync_id="acc-cash",
+            from_account_name="Cash",
+            to_account_sync_id="acc-target",
+            to_account_name="Target",
+        ))
+        db.commit()
+
+    _run(write_tools.update_transaction(
+        synthetic.user,
+        sync_id="tx-transfer",
+        ledger_id=synthetic.ledger.external_id,
+        account="Bank",
+    ))
+    body = synthetic.calls[0][2]
+    assert body["from_account_name"] == "Bank"
+    assert body["from_account_id"] == "acc-bank"
+
+    updated = snapshot_update(
+        {
+            "items": [{
+                "syncId": "tx-transfer",
+                "type": "transfer",
+                "amount": 10,
+                "happenedAt": "2026-08-01T00:00:00Z",
+                "fromAccountId": "acc-cash",
+                "fromAccountName": "Cash",
+                "toAccountId": "acc-target",
+                "toAccountName": "Target",
+            }],
+            "count": 1,
+        },
+        "tx-transfer",
+        body,
+    )["items"][0]
+    assert updated["fromAccountId"] == "acc-bank"
+    assert updated["fromAccountName"] == "Bank"
+    assert updated["toAccountId"] == "acc-target"
+    assert updated["toAccountName"] == "Target"
+
+
+def test_update_regular_account_keeps_name_compatibility_and_adds_id(synthetic) -> None:
+    with synthetic.session_factory() as db:
+        db.add(ReadTxProjection(
+            ledger_id=synthetic.ledger.id,
+            sync_id="tx-expense",
+            user_id=synthetic.user.id,
+            tx_type="expense",
+            amount=10,
+            happened_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            account_sync_id="acc-cash",
+            account_name="Cash",
+        ))
+        db.commit()
+
+    _run(write_tools.update_transaction(
+        synthetic.user,
+        sync_id="tx-expense",
+        ledger_id=synthetic.ledger.external_id,
+        account="Bank",
+    ))
+    body = synthetic.calls[0][2]
+    assert body["account_name"] == "Bank"
+    assert body["account_id"] == "acc-bank"
 
 
 def test_batch_idempotent_replay_materializes_once(synthetic, monkeypatch) -> None:
