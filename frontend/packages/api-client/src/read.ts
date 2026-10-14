@@ -300,6 +300,7 @@ export async function fetchWorkspaceAnalytics(
     metric?: AnalyticsMetric
     period?: string
     ledgerId?: string
+    accountSyncId?: string | string[]
     userId?: string
     tzOffsetMinutes?: number
     naturalMonth?: boolean
@@ -310,6 +311,7 @@ export async function fetchWorkspaceAnalytics(
   if (options?.metric) query.set('metric', options.metric)
   if (options?.period) query.set('period', options.period)
   if (options?.ledgerId) query.set('ledger_id', options.ledgerId)
+  for (const id of normalizeQueryArray(options?.accountSyncId)) query.append('account_sync_id', id)
   if (options?.userId) query.set('user_id', options.userId)
   if (typeof options?.tzOffsetMinutes === 'number') query.set('tz_offset_minutes', `${options.tzOffsetMinutes}`)
   if (options?.naturalMonth) query.set('natural_month', 'true')

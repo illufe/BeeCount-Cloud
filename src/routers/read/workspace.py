@@ -1195,6 +1195,10 @@ def workspace_analytics(
     metric: AnalyticsMetric = Query(default="expense"),
     period: str | None = Query(default=None),
     ledger_id: str | None = Query(default=None),
+    account_sync_id: list[str] | None = Query(
+        default=None,
+        description="按 account syncId 精确过滤(含 from/to,可重复,多值任一命中)",
+    ),
     user_id: str | None = Query(default=None),
     tz_offset_minutes: int = Query(default=0, ge=-720, le=840),
     natural_month: bool = Query(default=False),
@@ -1251,6 +1255,14 @@ def workspace_analytics(
             tx_query = tx_query.where(ReadTxProjection.happened_at >= start_at)
         if end_at is not None:
             tx_query = tx_query.where(ReadTxProjection.happened_at < end_at)
+        if account_sync_id:
+            account_sync_ids = [value.strip() for value in account_sync_id if value.strip()]
+            if account_sync_ids:
+                tx_query = tx_query.where(or_(
+                    ReadTxProjection.account_sync_id.in_(account_sync_ids),
+                    ReadTxProjection.from_account_sync_id.in_(account_sync_ids),
+                    ReadTxProjection.to_account_sync_id.in_(account_sync_ids),
+                ))
 
         # 用本地时区折算的日期算"记账天数",跟 _bucket_key 同步;否则东半球用户在
         # 本地 0-8 点记的笔会被算到前一天的 distinct_days,跟日历视图不一致。

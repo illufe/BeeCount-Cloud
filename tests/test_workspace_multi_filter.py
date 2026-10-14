@@ -67,6 +67,68 @@ def _fetch(client, web_hdr, params):
     return resp.json()
 
 
+def _fetch_analytics(client, web_hdr, params):
+    resp = client.get("/api/v1/read/workspace/analytics", params=params, headers=web_hdr)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _seed_analytics(client, app_hdr, device_id: str) -> tuple[str, str]:
+    ledger_a = "lg-analytics-a"
+    ledger_b = "lg-analytics-b"
+
+    def at(month: int, day: int) -> str:
+        return _iso(datetime(2026, month, day, tzinfo=timezone.utc))
+
+    _push(client, app_hdr, device_id, ledger_a, [
+        _change(ledger_a, "ledger", ledger_a, {
+            "syncId": ledger_a, "ledgerName": "Analytics A", "currency": "CNY",
+        }),
+        _change(ledger_a, "account", "account-a-cash", {
+            "syncId": "account-a-cash", "name": "A现金", "type": "cash", "currency": "CNY",
+        }),
+        _change(ledger_a, "account", "account-a-card", {
+            "syncId": "account-a-card", "name": "A银行卡", "type": "bank_card", "currency": "CNY",
+        }),
+        _change(ledger_a, "account", "account-a-other", {
+            "syncId": "account-a-other", "name": "A其他", "type": "cash", "currency": "CNY",
+        }),
+        _change(ledger_a, "transaction", "tx-a-income", {
+            "syncId": "tx-a-income", "type": "income", "amount": 10,
+            "happenedAt": at(1, 10), "accountName": "A现金", "accountId": "account-a-cash",
+        }),
+        _change(ledger_a, "transaction", "tx-a-expense", {
+            "syncId": "tx-a-expense", "type": "expense", "amount": 20,
+            "happenedAt": at(2, 10), "accountName": "A银行卡", "accountId": "account-a-card",
+        }),
+        _change(ledger_a, "transaction", "tx-a-out", {
+            "syncId": "tx-a-out", "type": "transfer", "amount": 1,
+            "happenedAt": at(3, 10), "fromAccountName": "A现金",
+            "fromAccountId": "account-a-cash", "toAccountName": "A其他",
+            "toAccountId": "account-a-other",
+        }),
+        _change(ledger_a, "transaction", "tx-a-in", {
+            "syncId": "tx-a-in", "type": "transfer", "amount": 2,
+            "happenedAt": at(3, 11), "fromAccountName": "A其他",
+            "fromAccountId": "account-a-other", "toAccountName": "A银行卡",
+            "toAccountId": "account-a-card",
+        }),
+    ])
+    _push(client, app_hdr, device_id, ledger_b, [
+        _change(ledger_b, "ledger", ledger_b, {
+            "syncId": ledger_b, "ledgerName": "Analytics B", "currency": "CNY",
+        }),
+        _change(ledger_b, "account", "account-b-cash", {
+            "syncId": "account-b-cash", "name": "B现金", "type": "cash", "currency": "CNY",
+        }),
+        _change(ledger_b, "transaction", "tx-b-income", {
+            "syncId": "tx-b-income", "type": "income", "amount": 100,
+            "happenedAt": at(1, 10), "accountName": "B现金", "accountId": "account-b-cash",
+        }),
+    ])
+    return ledger_a, ledger_b
+
+
 def test_multi_account_name_or_semantics() -> None:
     client = _make_client()
     try:
@@ -88,6 +150,93 @@ def test_multi_account_name_or_semantics() -> None:
         ])
         assert multi["total"] == 3
         assert multi["summary"]["income_total"] == 60.0
+    finally:
+        client.close()
+
+
+def test_analytics_account_sync_id_matches_direct_and_transfer_endpoints() -> None:
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "analytics-filter@test.com", device_id="analytics-filter-app", client_type="app")
+        web_token = _register_and_token(client, "analytics-filter@test.com", device_id="analytics-filter-web", client_type="web")
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+        ledger_id, _ = _seed_analytics(
+            client,
+            {"Authorization": f"Bearer {app_token}"},
+            "analytics-filter-app",
+        )
+        base = [
+            ("scope", "year"),
+            ("period", "2026"),
+            ("ledger_id", ledger_id),
+            ("natural_month", "true"),
+        ]
+
+        # No account filter keeps the complete ledger totals unchanged.
+        unfiltered = _fetch_analytics(client, web_hdr, base)
+        assert unfiltered["summary"]["transaction_count"] == 4
+        assert unfiltered["summary"]["income_total"] == 10.0
+        assert unfiltered["summary"]["expense_total"] == 20.0
+        assert unfiltered["summary"]["balance"] == -10.0
+        unfiltered_series = {item["bucket"]: item for item in unfiltered["series"]}
+        assert unfiltered_series["2026-01"]["income"] == 10.0
+        assert unfiltered_series["2026-02"]["expense"] == 20.0
+
+        # The selected account may be the direct account or the transfer source.
+        cash = _fetch_analytics(client, web_hdr, base + [("account_sync_id", "account-a-cash")])
+        assert cash["summary"]["transaction_count"] == 2
+        assert cash["summary"]["income_total"] == 10.0
+        assert cash["summary"]["expense_total"] == 0.0
+
+        # The selected account may also be the transfer destination.
+        card = _fetch_analytics(client, web_hdr, base + [("account_sync_id", "account-a-card")])
+        assert card["summary"]["transaction_count"] == 2
+        assert card["summary"]["income_total"] == 0.0
+        assert card["summary"]["expense_total"] == 20.0
+
+        # Repeated account_sync_id parameters retain OR semantics.
+        multi = _fetch_analytics(client, web_hdr, base + [
+            ("account_sync_id", "account-a-cash"),
+            ("account_sync_id", "account-a-card"),
+        ])
+        assert multi["summary"]["transaction_count"] == 4
+        assert multi["summary"]["income_total"] == 10.0
+        assert multi["summary"]["expense_total"] == 20.0
+    finally:
+        client.close()
+
+
+def test_analytics_account_sync_id_respects_ledger_scope() -> None:
+    client = _make_client()
+    try:
+        app_token = _register_and_token(client, "analytics-ledger@test.com", device_id="analytics-ledger-app", client_type="app")
+        web_token = _register_and_token(client, "analytics-ledger@test.com", device_id="analytics-ledger-web", client_type="web")
+        web_hdr = {"Authorization": f"Bearer {web_token}"}
+        ledger_a, ledger_b = _seed_analytics(
+            client,
+            {"Authorization": f"Bearer {app_token}"},
+            "analytics-ledger-app",
+        )
+        params = [
+            ("scope", "year"),
+            ("period", "2026"),
+            ("ledger_id", ledger_b),
+            ("natural_month", "true"),
+        ]
+        ledger_b_rows = _fetch_analytics(client, web_hdr, params)
+        assert ledger_b_rows["summary"]["transaction_count"] == 1
+        assert ledger_b_rows["summary"]["income_total"] == 100.0
+
+        # An account from another ledger cannot cross the requested ledger boundary.
+        foreign_account = _fetch_analytics(client, web_hdr, params + [
+            ("account_sync_id", "account-a-cash"),
+        ])
+        assert foreign_account["summary"]["transaction_count"] == 0
+        assert foreign_account["summary"]["income_total"] == 0.0
+        assert foreign_account["summary"]["expense_total"] == 0.0
+        assert foreign_account["summary"]["balance"] == 0.0
+        assert foreign_account["series"] == []
+        assert ledger_a != ledger_b
     finally:
         client.close()
 

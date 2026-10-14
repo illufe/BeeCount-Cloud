@@ -252,6 +252,7 @@ export function QuickAddPage() {
         metric: 'expense',
         period: String(displayYear),
         ledgerId: activeLedgerId,
+        accountSyncId: appliedFilter.accountSyncId.length ? appliedFilter.accountSyncId : undefined,
         tzOffsetMinutes: -new Date().getTimezoneOffset(),
         naturalMonth: true,
       })
@@ -261,7 +262,7 @@ export function QuickAddPage() {
       if (requestId !== yearRequestRef.current) return
       toast.error(localizeError(error, t), t('notice.failed'))
     }
-  }, [activeLedgerId, displayYear, t, toast, token])
+  }, [activeLedgerId, appliedFilter.accountSyncId, displayYear, t, toast, token])
 
   useEffect(() => {
     setForm(txDefaults())
