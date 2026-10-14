@@ -631,7 +631,9 @@ class ReadBudgetUsageOut(BaseModel):
 
 
 class WorkspaceTransactionOut(ReadTransactionOut):
-    pass
+    account_balance_after: float | None = None
+    from_account_balance_after: float | None = None
+    to_account_balance_after: float | None = None
 
 
 class WorkspaceTransactionSummaryOut(BaseModel):

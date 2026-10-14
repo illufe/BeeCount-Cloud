@@ -189,6 +189,9 @@ export type ReadTransaction = {
   currency_code?: string | null
   /** 折账本本位币的金额快照(记账时汇率,保存即定)。null 时 fallback 用 amount。 */
   native_amount?: number | null
+  account_balance_after?: number | null
+  from_account_balance_after?: number | null
+  to_account_balance_after?: number | null
   last_change_id: number
   ledger_id?: string | null
   ledger_name?: string | null

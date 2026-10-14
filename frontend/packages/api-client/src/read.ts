@@ -165,8 +165,10 @@ export async function fetchWorkspaceTransactions(
     dateFrom?: string
     /** happened_at < dateTo (ISO 8601, 独占)。前端通常传"次日 00:00"包含整天。 */
     dateTo?: string
+    includeAccountBalance?: boolean
     limit?: number
     offset?: number
+    signal?: AbortSignal
   }
 ): Promise<WorkspaceTransactionPage> {
   const query = new URLSearchParams()
@@ -183,12 +185,16 @@ export async function fetchWorkspaceTransactions(
   if (typeof options?.amountMax === 'number') query.set('amount_max', `${options.amountMax}`)
   if (options?.dateFrom) query.set('date_from', options.dateFrom)
   if (options?.dateTo) query.set('date_to', options.dateTo)
+  if (typeof options?.includeAccountBalance === 'boolean') {
+    query.set('include_account_balance', `${options.includeAccountBalance}`)
+  }
   if (typeof options?.limit === 'number') query.set('limit', `${options.limit}`)
   if (typeof options?.offset === 'number') query.set('offset', `${options.offset}`)
   const suffix = query.toString() ? `?${query.toString()}` : ''
   const response = await authedGet<WorkspaceTransactionPage | WorkspaceTransaction[]>(
     `/read/workspace/transactions${suffix}`,
-    token
+    token,
+    options?.signal,
   )
 
   // Backward compatibility: older backend returned array directly.
