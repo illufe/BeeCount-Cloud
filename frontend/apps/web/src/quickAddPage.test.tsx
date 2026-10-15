@@ -6,6 +6,7 @@ const state = vi.hoisted(() => ({
   onSync: null as null | (() => void),
   success: vi.fn(),
   fetchTransactions: vi.fn(),
+  fetchAnalytics: vi.fn(),
 }))
 
 vi.mock('react', async (importOriginal) => {
@@ -22,7 +23,7 @@ vi.mock('@beecount/api-client', () => ({
   createTransaction: vi.fn(async () => undefined),
   deleteTransaction: vi.fn(async () => undefined),
   fetchWorkspaceAccounts: vi.fn(async () => []),
-  fetchWorkspaceAnalytics: vi.fn(async () => ({ series: [] })),
+  fetchWorkspaceAnalytics: state.fetchAnalytics,
   fetchWorkspaceCategories: vi.fn(async () => []),
   fetchWorkspaceTags: vi.fn(async () => []),
   fetchWorkspaceTransactions: state.fetchTransactions,
@@ -100,6 +101,13 @@ describe('QuickAddPage write refresh', () => {
     state.onSync = null
     state.success.mockClear()
     state.fetchTransactions.mockReset()
+    state.fetchAnalytics.mockReset()
+    state.fetchAnalytics.mockResolvedValue({ series: [] })
+    state.fetchTransactions.mockResolvedValue({
+      items: [],
+      total: 0,
+      summary: { income_total: 0, expense_total: 0, balance: 0 },
+    })
   })
 
   it('does not let a sync refresh cancel and finish a save refresh early', async () => {
@@ -125,5 +133,13 @@ describe('QuickAddPage write refresh', () => {
     })
     await expect(save).resolves.toBe(true)
     expect(state.success).toHaveBeenCalledTimes(1)
+  })
+
+  it('passes the default transfer inclusion option to year analytics', async () => {
+    renderToStaticMarkup(<QuickAddPage />)
+    state.onSync!()
+    await vi.waitFor(() => expect(state.fetchAnalytics).toHaveBeenCalledTimes(1))
+    // SSR covers request-option forwarding; it does not simulate a live checkbox interaction.
+    expect(state.fetchAnalytics.mock.calls[0][1]).toMatchObject({ includeTransfers: false })
   })
 })

@@ -72,6 +72,7 @@ const en = {
   'quickAdd.expense': 'Expense',
   'quickAdd.balance': 'Balance',
   'quickAdd.reconcile': 'Reconcile',
+  'quickAdd.includeTransfers': 'Include transfers',
   'quickAdd.list': 'Transaction list',
   'quickAdd.customDate': 'Custom dates',
   'quickAdd.month': 'month',

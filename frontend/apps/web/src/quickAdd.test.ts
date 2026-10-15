@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { authedGet, configureHttp, fetchWorkspaceTransactions } from '@beecount/api-client'
+import {
+  authedGet,
+  configureHttp,
+  fetchWorkspaceAnalytics,
+  fetchWorkspaceTransactions,
+} from '@beecount/api-client'
 import {
   isCustomDateFilter,
   naturalMonthDateRange,
@@ -131,6 +136,22 @@ describe('quick add helpers', () => {
       await fetchWorkspaceTransactions('token', { ledgerId: 'ledger', includeAccountBalance: false })
       expect(String(fetchMock.mock.calls[0][0])).toContain('include_account_balance=true')
       expect(String(fetchMock.mock.calls[1][0])).toContain('include_account_balance=false')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('keeps transfer analytics opt-in and serializes the include flag', async () => {
+    const fetchMock = vi.fn(async (..._args: [RequestInfo | URL, RequestInit?]) => new Response(
+      JSON.stringify({ series: [] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      await fetchWorkspaceAnalytics('token', { ledgerId: 'ledger' })
+      await fetchWorkspaceAnalytics('token', { ledgerId: 'ledger', includeTransfers: true })
+      expect(String(fetchMock.mock.calls[0][0])).not.toContain('include_transfers')
+      expect(String(fetchMock.mock.calls[1][0])).toContain('include_transfers=true')
     } finally {
       vi.unstubAllGlobals()
     }

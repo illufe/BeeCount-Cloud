@@ -1358,6 +1358,10 @@ def workspace_analytics(
     user_id: str | None = Query(default=None),
     tz_offset_minutes: int = Query(default=0, ge=-720, le=840),
     natural_month: bool = Query(default=False),
+    include_transfers: bool = Query(
+        default=False,
+        description="将当前账户筛选命中的转账端点分别计入收入/支出",
+    ),
     _scopes: set[str] = Depends(_READ_SCOPE_DEP),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -1393,12 +1397,17 @@ def workspace_analytics(
     last_tx_at: datetime | None = None
 
     if ledger_internal_ids:
+        selected_account_sync_ids = {
+            value.strip() for value in (account_sync_id or []) if value.strip()
+        }
         tx_query = select(
             ReadTxProjection.tx_type,
             # 账本维度折本位币口径(0018):native_amount ?? amount。
             func.coalesce(ReadTxProjection.native_amount, ReadTxProjection.amount),
             ReadTxProjection.happened_at,
             ReadTxProjection.category_name,
+            ReadTxProjection.from_account_sync_id,
+            ReadTxProjection.to_account_sync_id,
         ).where(
             ReadTxProjection.ledger_id.in_(ledger_internal_ids),
             # exclude_from_stats=True 的交易不计入收支统计(D1);该端点所有
@@ -1411,20 +1420,25 @@ def workspace_analytics(
             tx_query = tx_query.where(ReadTxProjection.happened_at >= start_at)
         if end_at is not None:
             tx_query = tx_query.where(ReadTxProjection.happened_at < end_at)
-        if account_sync_id:
-            account_sync_ids = [value.strip() for value in account_sync_id if value.strip()]
-            if account_sync_ids:
-                tx_query = tx_query.where(or_(
-                    ReadTxProjection.account_sync_id.in_(account_sync_ids),
-                    ReadTxProjection.from_account_sync_id.in_(account_sync_ids),
-                    ReadTxProjection.to_account_sync_id.in_(account_sync_ids),
-                ))
+        if selected_account_sync_ids:
+            tx_query = tx_query.where(or_(
+                ReadTxProjection.account_sync_id.in_(selected_account_sync_ids),
+                ReadTxProjection.from_account_sync_id.in_(selected_account_sync_ids),
+                ReadTxProjection.to_account_sync_id.in_(selected_account_sync_ids),
+            ))
 
         # 用本地时区折算的日期算"记账天数",跟 _bucket_key 同步;否则东半球用户在
         # 本地 0-8 点记的笔会被算到前一天的 distinct_days,跟日历视图不一致。
         from datetime import timedelta as _td
 
-        for tx_type_val, amount, happened_at_raw, cat_name in db.execute(tx_query).all():
+        for (
+            tx_type_val,
+            amount,
+            happened_at_raw,
+            cat_name,
+            from_account_sync_id,
+            to_account_sync_id,
+        ) in db.execute(tx_query).all():
             if happened_at_raw is None:
                 continue
             happened_at = _to_utc(happened_at_raw)
@@ -1438,25 +1452,37 @@ def workspace_analytics(
                 last_tx_at = happened_at
             bucket = _bucket_key(scope, happened_at, tz_offset_minutes, month_start_day)
             slot = series_map.setdefault(bucket, {"expense": 0.0, "income": 0.0})
+            contributions: list[tuple[str, float]] = []
             if tx_type_val == "income":
-                income_total += amt
-                slot["income"] += amt
+                contributions.append(("income", amt))
             elif tx_type_val == "expense":
-                expense_total += amt
-                slot["expense"] += amt
-            else:
+                contributions.append(("expense", amt))
+            elif tx_type_val == "transfer" and include_transfers:
+                # 转账金额沿用账本统计的 COALESCE(native_amount, amount)；
+                # 账户筛选只决定哪个端点进入哪一侧。
+                all_accounts = not selected_account_sync_ids
+                if all_accounts or to_account_sync_id in selected_account_sync_ids:
+                    contributions.append(("income", amt))
+                if all_accounts or from_account_sync_id in selected_account_sync_ids:
+                    contributions.append(("expense", amt))
+            if not contributions:
                 continue
             category = (cat_name or "").strip() or "Uncategorized"
             category_slot = category_map.setdefault(
                 category, {"income": 0.0, "expense": 0.0, "count": 0.0})
             category_slot["count"] += 1.0
-            if tx_type_val == "income":
-                category_slot["income"] += amt
-            elif tx_type_val == "expense":
-                category_slot["expense"] += amt
-                # 同步累加 per-bucket category → anomaly 归因输入
-                bucket_cat = category_by_bucket.setdefault(bucket, {})
-                bucket_cat[category] = bucket_cat.get(category, 0.0) + amt
+            for contribution_type, contribution_amount in contributions:
+                if contribution_type == "income":
+                    income_total += contribution_amount
+                    slot["income"] += contribution_amount
+                    category_slot["income"] += contribution_amount
+                else:
+                    expense_total += contribution_amount
+                    slot["expense"] += contribution_amount
+                    category_slot["expense"] += contribution_amount
+                    # 同步累加 per-bucket category → anomaly 归因输入
+                    bucket_cat = category_by_bucket.setdefault(bucket, {})
+                    bucket_cat[category] = bucket_cat.get(category, 0.0) + contribution_amount
 
     series = [
         WorkspaceAnalyticsSeriesItemOut(

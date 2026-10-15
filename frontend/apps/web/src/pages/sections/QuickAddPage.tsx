@@ -154,6 +154,7 @@ export function QuickAddPage() {
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ income_total: 0, expense_total: 0, balance: 0 })
   const [showReconcile, setShowReconcile] = useState(false)
+  const [includeTransfers, setIncludeTransfers] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT)
   const [filter, setFilter] = useState<QuickAddFilter>(initialFilter)
@@ -274,6 +275,7 @@ export function QuickAddPage() {
         period: String(displayYear),
         ledgerId: activeLedgerId,
         accountSyncId: appliedFilter.accountSyncId.length ? appliedFilter.accountSyncId : undefined,
+        includeTransfers,
         tzOffsetMinutes: -new Date().getTimezoneOffset(),
         naturalMonth: true,
       })
@@ -283,7 +285,7 @@ export function QuickAddPage() {
       if (requestId !== yearRequestRef.current) return
       toast.error(localizeError(error, t), t('notice.failed'))
     }
-  }, [activeLedgerId, appliedFilter.accountSyncId, displayYear, t, toast, token])
+  }, [activeLedgerId, appliedFilter.accountSyncId, displayYear, includeTransfers, t, toast, token])
 
   useEffect(() => {
     setForm(txDefaults())
@@ -466,6 +468,15 @@ export function QuickAddPage() {
               </span>
             </CardHeader>
             <CardContent className="space-y-1">
+              <label className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={includeTransfers}
+                  onChange={(event) => setIncludeTransfers(event.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                {t('quickAdd.includeTransfers')}
+              </label>
               {Array.from({ length: 12 }, (_, i) => 11 - i).map((index) => {
                 const month = `${displayYear}-${String(index + 1).padStart(2, '0')}`
                 const item = monthSeries.get(month)

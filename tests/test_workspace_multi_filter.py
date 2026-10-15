@@ -113,6 +113,12 @@ def _seed_analytics(client, app_hdr, device_id: str) -> tuple[str, str]:
             "fromAccountId": "account-a-other", "toAccountName": "A银行卡",
             "toAccountId": "account-a-card",
         }),
+        _change(ledger_a, "transaction", "tx-a-excluded-transfer", {
+            "syncId": "tx-a-excluded-transfer", "type": "transfer", "amount": 99,
+            "happenedAt": at(3, 12), "fromAccountName": "A现金",
+            "fromAccountId": "account-a-cash", "toAccountName": "A银行卡",
+            "toAccountId": "account-a-card", "excludeFromStats": True,
+        }),
     ])
     _push(client, app_hdr, device_id, ledger_b, [
         _change(ledger_b, "ledger", ledger_b, {
@@ -202,6 +208,42 @@ def test_analytics_account_sync_id_matches_direct_and_transfer_endpoints() -> No
         assert multi["summary"]["transaction_count"] == 4
         assert multi["summary"]["income_total"] == 10.0
         assert multi["summary"]["expense_total"] == 20.0
+
+        include_base = base + [("include_transfers", "true")]
+
+        # 默认无账户筛选视为两端都选:每笔转账各计一次收入和支出。
+        unfiltered_with_transfers = _fetch_analytics(client, web_hdr, include_base)
+        assert unfiltered_with_transfers["summary"]["transaction_count"] == 4
+        assert unfiltered_with_transfers["summary"]["income_total"] == 13.0
+        assert unfiltered_with_transfers["summary"]["expense_total"] == 23.0
+        march = {item["bucket"]: item for item in unfiltered_with_transfers["series"]}["2026-03"]
+        assert march["income"] == 3.0
+        assert march["expense"] == 3.0
+
+        # 只选转出端:该账户的 transfer 只进入 expense。
+        cash_with_transfers = _fetch_analytics(client, web_hdr, include_base + [
+            ("account_sync_id", "account-a-cash"),
+        ])
+        assert cash_with_transfers["summary"]["income_total"] == 10.0
+        assert cash_with_transfers["summary"]["expense_total"] == 1.0
+
+        # 只选转入端:该账户的 transfer 只进入 income。
+        card_with_transfers = _fetch_analytics(client, web_hdr, include_base + [
+            ("account_sync_id", "account-a-card"),
+        ])
+        assert card_with_transfers["summary"]["income_total"] == 2.0
+        assert card_with_transfers["summary"]["expense_total"] == 20.0
+
+        # 同一转账的两端都选中时,收入与支出各计一次;多账户仍是 OR 筛选。
+        both_endpoints = _fetch_analytics(client, web_hdr, include_base + [
+            ("account_sync_id", "account-a-cash"),
+            ("account_sync_id", "account-a-other"),
+        ])
+        assert both_endpoints["summary"]["income_total"] == 11.0
+        assert both_endpoints["summary"]["expense_total"] == 3.0
+
+        # exclude_from_stats 对转账同样生效(99 不进入任一方向);上面的 13/23
+        # 已同时锁住未计入该笔的结果。
     finally:
         client.close()
 
@@ -230,6 +272,7 @@ def test_analytics_account_sync_id_respects_ledger_scope() -> None:
         # An account from another ledger cannot cross the requested ledger boundary.
         foreign_account = _fetch_analytics(client, web_hdr, params + [
             ("account_sync_id", "account-a-cash"),
+            ("include_transfers", "true"),
         ])
         assert foreign_account["summary"]["transaction_count"] == 0
         assert foreign_account["summary"]["income_total"] == 0.0

@@ -307,6 +307,7 @@ export async function fetchWorkspaceAnalytics(
     period?: string
     ledgerId?: string
     accountSyncId?: string | string[]
+    includeTransfers?: boolean
     userId?: string
     tzOffsetMinutes?: number
     naturalMonth?: boolean
@@ -318,6 +319,7 @@ export async function fetchWorkspaceAnalytics(
   if (options?.period) query.set('period', options.period)
   if (options?.ledgerId) query.set('ledger_id', options.ledgerId)
   for (const id of normalizeQueryArray(options?.accountSyncId)) query.append('account_sync_id', id)
+  if (options?.includeTransfers) query.set('include_transfers', 'true')
   if (options?.userId) query.set('user_id', options.userId)
   if (typeof options?.tzOffsetMinutes === 'number') query.set('tz_offset_minutes', `${options.tzOffsetMinutes}`)
   if (options?.naturalMonth) query.set('natural_month', 'true')

@@ -72,6 +72,7 @@ const zhTW = {
   'quickAdd.expense': '支出',
   'quickAdd.balance': '結餘',
   'quickAdd.reconcile': '對帳',
+  'quickAdd.includeTransfers': '包含轉帳',
   'quickAdd.list': '交易清單',
   'quickAdd.customDate': '自訂日期',
   'quickAdd.month': '月',

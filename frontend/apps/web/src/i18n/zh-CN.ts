@@ -69,6 +69,7 @@ const zhCN = {
   'quickAdd.expense': '支出',
   'quickAdd.balance': '结余',
   'quickAdd.reconcile': '对账',
+  'quickAdd.includeTransfers': '包含转账',
   'quickAdd.list': '交易清单',
   'quickAdd.customDate': '自定义日期',
   'quickAdd.month': '月',
